@@ -29,7 +29,8 @@ import java.util.Set;
 import java.util.TreeSet;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
-import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.locks.ReadWriteLock;
+import java.util.concurrent.locks.ReentrantReadWriteLock;
 import javax.naming.Name;
 import javax.sql.DataSource;
 import org.geotools.metadata.i18n.ErrorKeys;
@@ -76,7 +77,13 @@ public class Hints extends RenderingHints {
             new ConcurrentHashMap<RenderingHints.Key, Object>();
 
     /** {@code true} if {@link #scanSystemProperties} needs to be invoked. */
-    private static AtomicBoolean needScan = new AtomicBoolean(true);
+    private static volatile boolean needScan = true;
+
+    /**
+     * Concurrency control for {@link #scanSystemProperties()} and {@link
+     * #ensureSystemDefaultLoaded()}
+     */
+    private static ReadWriteLock scanLock = new ReentrantReadWriteLock(true);
 
     ////////////////////////////////////////////////////////////////////////
     ////////                                                        ////////
@@ -1165,7 +1172,14 @@ public class Hints extends RenderingHints {
      * @since 2.4
      */
     public static void scanSystemProperties() {
-        needScan.set(true);
+        if (!needScan) {
+            // grab a write lock to avoid the case where this method sets needScan to true right
+            // before another thread running ensureSystemDefaultLoaded() sets it to false and hence
+            // this demand to re-scan makes no effect
+            scanLock.writeLock().lock();
+            needScan = true;
+            scanLock.writeLock().unlock();
+        }
     }
 
     /**
@@ -1174,18 +1188,36 @@ public class Hints extends RenderingHints {
      *
      * @return {@code true} if at least one hint changed as a result of this scan, or {@code false}
      *     otherwise.
+     * @implNote uses a read-write lock to guard the state of {@link #needScan} and ensure that
+     *     concurrent threads that find {@code needScan == true} call {@code
+     *     GeoTools.scanForSystemHints} once, while waiting for the winner to finish, while at the
+     *     same time re-running the scan if {@link #scanSystemProperties()} was called while a scan
+     *     was being run.
      */
     private static boolean ensureSystemDefaultLoaded() {
-        // update GLOBAL atomically only if needScan == true
-        if (needScan.compareAndSet(true, false)) {
-            Map<RenderingHints.Key, Object> newGlobal =
-                    new ConcurrentHashMap<RenderingHints.Key, Object>(GLOBAL);
-            boolean modified = GeoTools.scanForSystemHints(newGlobal);
-            GLOBAL = newGlobal;
-            return modified;
-        } else {
-            return false;
+        scanLock.readLock().lock();
+        try {
+            if (needScan) {
+                scanLock.readLock().unlock();
+                scanLock.writeLock().lock();
+                try {
+                    if (needScan) {
+                        Map<RenderingHints.Key, Object> newGlobal;
+                        newGlobal = new ConcurrentHashMap<>(GLOBAL);
+                        boolean modified = GeoTools.scanForSystemHints(newGlobal);
+                        GLOBAL = newGlobal;
+                        needScan = false;
+                        return modified;
+                    }
+                } finally {
+                    scanLock.readLock().lock();
+                    scanLock.writeLock().unlock();
+                }
+            }
+        } finally {
+            scanLock.readLock().unlock();
         }
+        return false;
     }
 
     /**
