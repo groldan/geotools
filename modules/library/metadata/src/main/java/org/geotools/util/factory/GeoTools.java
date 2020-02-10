@@ -35,6 +35,7 @@ import java.util.Map;
 import java.util.Properties;
 import java.util.Set;
 import java.util.StringTokenizer;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.jar.Manifest;
 import java.util.logging.Level;
 import java.util.logging.Logger;
@@ -278,7 +279,9 @@ public final class GeoTools {
     }
 
     /** The initial context. Will be created only when first needed. */
-    private static InitialContext context;
+    private static final AtomicReference<InitialContext> context = new AtomicReference<>();
+
+    private static final AtomicReference<NamingException> contextError = new AtomicReference<>();
 
     /**
      * Class loaders to be added to the list in ${link {@link FactoryRegistry#getClassLoaders()}}
@@ -733,9 +736,8 @@ public final class GeoTools {
      * @since 2.4
      */
     public static void init(final InitialContext applicationContext) {
-        synchronized (GeoTools.class) {
-            context = applicationContext;
-        }
+        context.set(applicationContext);
+        contextError.set(null);
         fireConfigurationChanged();
     }
 
@@ -934,21 +936,65 @@ public final class GeoTools {
         }
         return defaultValue;
     }
+
     /**
      * Returns the default initial context.
      *
-     * @param hints An optional set of hints, or {@code null} if none.
+     * @param hints Unused An optional set of hints, or {@code null} if none.
      * @return The initial context (never {@code null}).
      * @throws NamingException if the initial context can't be created.
      * @see #init(InitialContext)
      * @since 2.4
+     * @implNote This method will fail fast if a previous call threw a NamingException whose cause
+     *     was a {@code java.lang.ClassNotFoundException}. Rationale being that it can be called
+     *     repeatedly in tight loops, and from multiple threads, which would cause a severe thread
+     *     lock contention down the pipe when {@code new InitialContext()} reaches the {@code
+     *     synchronized} blocks at {@code java.lang.ClassLoader.loadClass()}
      */
-    public static synchronized InitialContext getInitialContext(final Hints hints)
-            throws NamingException {
-        if (context == null) {
-            context = new InitialContext();
+    public static InitialContext getInitialContext(final Hints hints) throws NamingException {
+        InitialContext initialContext = context.get();
+        if (initialContext != null) {
+            return initialContext;
         }
-        return context;
+        // if the context creation failed already, it'll keep failing
+        NamingException previousError = contextError.get();
+        if (previousError != null) {
+            NamingException e =
+                    new NamingException(
+                            String.format(
+                                    "Fail fast NamingException. Original message: %s",
+                                    previousError.getMessage()));
+            e.initCause(previousError);
+            throw e;
+        }
+        try {
+            // never ever try to create more than a single InitialContext when called
+            // concurrently
+            context.getAndAccumulate(
+                    null,
+                    (current, newNull) -> {
+                        if (current == null) {
+                            try {
+                                return new InitialContext();
+                            } catch (NamingException e) {
+                                throw new RuntimeException(e);
+                            }
+                        }
+                        return current;
+                    });
+        } catch (RuntimeException rte) {
+            NamingException namingException = (NamingException) rte.getCause();
+            Throwable root = namingException;
+            while (root.getCause() != null) {
+                root = root.getCause();
+                if (root instanceof ClassNotFoundException) {
+                    contextError.compareAndSet(null, namingException);
+                    break;
+                }
+            }
+            throw namingException;
+        }
+        return context.get();
     }
 
     /**
@@ -957,11 +1003,12 @@ public final class GeoTools {
      * @throws NamingException
      * @since 15.0
      */
-    public static synchronized void clearInitialContext() throws NamingException {
-        if (context != null) {
-            context.close();
+    public static void clearInitialContext() throws NamingException {
+        InitialContext initialContext = context.getAndSet(null);
+        contextError.set(null);
+        if (initialContext != null) {
+            initialContext.close();
         }
-        context = null;
     }
 
     /**
