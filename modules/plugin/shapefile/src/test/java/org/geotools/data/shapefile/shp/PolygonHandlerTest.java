@@ -26,6 +26,8 @@ import org.locationtech.jts.geom.Coordinate;
 import org.locationtech.jts.geom.GeometryFactory;
 import org.locationtech.jts.geom.LinearRing;
 import org.locationtech.jts.geom.PrecisionModel;
+import org.locationtech.jts.index.SpatialIndex;
+import org.locationtech.jts.index.strtree.STRtree;
 
 /**
  * @version $Id$
@@ -58,6 +60,8 @@ public class PolygonHandlerTest extends TestCaseSupport {
         int y = 10;
 
         shells.add(copyTo(x, y, ps.width - 2 * x, ps.height - 2 * y, rectangle(precision, 0)));
+        SpatialIndex shellsIndex = new STRtree();
+        shells.forEach(s -> shellsIndex.insert(s.getEnvelopeInternal(), s));
 
         int w = 11;
         int h = 11;
@@ -79,7 +83,7 @@ public class PolygonHandlerTest extends TestCaseSupport {
         }
 
         PolygonHandler ph = new PolygonHandler(new GeometryFactory());
-        List<List<LinearRing>> assigned = ph.assignHolesToShells(shells, holes);
+        List<List<LinearRing>> assigned = ph.assignHolesToShells(shellsIndex, shells, holes);
         assertEquals(holes.size(), assigned.get(0).size());
     }
 
