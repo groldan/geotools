@@ -139,7 +139,7 @@ public class PolygonHandler implements ShapeHandler {
         STRtree shellsIndex = new STRtree(2 + numParts); // Node capacity must be > 1
         List<LinearRing> shells = new ReferenceCheckingArrayList<>();
         List<LinearRing> holes = new ArrayList<>();
-        CoordinateSequence coords = readCoordinates(buffer, numPoints, dimensions);
+        CoordinateSequence coords = readCoordinates(buffer, numPoints);
 
         int offset = 0;
         int start;
@@ -272,44 +272,116 @@ public class PolygonHandler implements ShapeHandler {
     }
 
     /** */
-    private CoordinateSequence readCoordinates(
-            final ByteBuffer buffer, final int numPoints, final int dimensions) {
-        CoordinateSequence cs;
-        if (shapeType == ShapeType.POLYGONM) {
-            cs = JTS.createCS(geometryFactory.getCoordinateSequenceFactory(), numPoints, 3, 1);
-        } else if (shapeType == ShapeType.POLYGONZ) {
-            cs = JTS.createCS(geometryFactory.getCoordinateSequenceFactory(), numPoints, 4, 1);
-        } else {
-            cs =
-                    JTS.createCS(
-                            geometryFactory.getCoordinateSequenceFactory(), numPoints, dimensions);
-        }
+    private CoordinateSequence readCoordinates(final ByteBuffer buffer, final int numPoints) {
         DoubleBuffer dbuffer = buffer.asDoubleBuffer();
-        double[] ordinates = new double[numPoints * 2];
-        dbuffer.get(ordinates);
-        for (int t = 0; t < numPoints; t++) {
-            cs.setOrdinate(t, CoordinateSequence.X, ordinates[t * 2]);
-            cs.setOrdinate(t, CoordinateSequence.Y, ordinates[t * 2 + 1]);
-        }
+        boolean hasZ = shapeType == ShapeType.POLYGONZ;
+        boolean hasM = shapeType == ShapeType.POLYGONM || shapeType == ShapeType.POLYGONZ;
+        BufferCoordinateSequence seq = new BufferCoordinateSequence(dbuffer, numPoints, hasZ, hasM);
+        return seq;
+    }
 
-        if (shapeType == ShapeType.POLYGONZ) { // Handle Z
-            dbuffer.position(dbuffer.position() + 2);
-            dbuffer.get(ordinates, 0, numPoints);
+    /**
+     * {@link DoubleBuffer} backed polygon coordinates list in shapefile format: all {@code [x,y]},
+     * followed by all {@code [z]}, followed by all {@code [m]}
+     */
+    private static class BufferCoordinateSequence implements CoordinateSequence {
 
-            for (int t = 0; t < numPoints; t++) {
-                cs.setOrdinate(t, CoordinateSequence.Z, ordinates[t]);
+        private final DoubleBuffer buffer;
+        private final boolean hasZ;
+        private final boolean hasM;
+        private final int size;
+        private final int zOffset;
+        private final int mOffset;
+        private final int dimensions;
+
+        BufferCoordinateSequence(
+                DoubleBuffer buffer, final int size, final boolean hasZ, final boolean hasM) {
+            if (hasM && !hasZ) {
+                throw new IllegalArgumentException("hasM implies hasZ");
             }
+            final int boundingRangeSize = 2;
+            this.buffer = buffer;
+            this.size = size;
+            this.hasZ = hasZ;
+            this.hasM = hasM;
+            this.zOffset = hasZ ? boundingRangeSize + 2 * size : -1;
+            this.mOffset = !hasM ? -1 : boundingRangeSize + (hasZ ? zOffset + size : 2 * size);
+            this.dimensions = 2 + (hasZ ? 1 : 0) + (hasM ? 1 : 0);
         }
-        if (shapeType == ShapeType.POLYGONM || shapeType == ShapeType.POLYGONZ) { // Handle M
-            dbuffer.position(dbuffer.position() + 2);
-            dbuffer.get(ordinates, 0, numPoints);
 
-            for (int t = 0; t < numPoints; t++) {
-                cs.setOrdinate(t, CoordinateSequence.M, ordinates[t]);
+        public @Override int size() {
+            return size;
+        }
+
+        public @Override int getDimension() {
+            return this.dimensions;
+        }
+
+        public @Override int getMeasures() {
+            return hasM ? 1 : 0;
+        }
+
+        public @Override Coordinate getCoordinate(int i) {
+            throw new UnsupportedOperationException();
+        }
+
+        public @Override Coordinate getCoordinateCopy(int i) {
+            throw new UnsupportedOperationException();
+        }
+
+        public @Override void getCoordinate(int index, Coordinate coord) {
+            throw new UnsupportedOperationException();
+        }
+
+        public @Override double getX(int index) {
+            return getOrdinate(index, CoordinateSequence.X);
+        }
+
+        public @Override double getY(int index) {
+            return getOrdinate(index, CoordinateSequence.Y);
+        }
+
+        public @Override double getOrdinate(final int index, final int ordinateIndex) {
+            int offset;
+            switch (ordinateIndex) {
+                case 0:
+                    offset = 2 * index;
+                    break;
+                case 1:
+                    offset = 1 + 2 * index;
+                    break;
+                case 2:
+                    offset = (hasZ ? zOffset : mOffset) + index;
+                    break;
+                case 3:
+                    offset = mOffset + index;
+                    break;
+                default:
+                    throw new ArrayIndexOutOfBoundsException(ordinateIndex);
             }
+            double value = buffer.get(offset);
+            return value;
         }
 
-        return cs;
+        public @Override void setOrdinate(int index, int ordinateIndex, double value) {
+            throw new UnsupportedOperationException("read only coordinate sequence");
+        }
+
+        public @Override Coordinate[] toCoordinateArray() {
+            throw new UnsupportedOperationException();
+        }
+
+        public @Override Envelope expandEnvelope(Envelope env) {
+            throw new UnsupportedOperationException();
+        }
+
+        public @Override CoordinateSequence copy() {
+            throw new UnsupportedOperationException();
+        }
+
+        public @Override CoordinateSequence clone() {
+            throw new UnsupportedOperationException();
+        }
     }
 
     /** */
