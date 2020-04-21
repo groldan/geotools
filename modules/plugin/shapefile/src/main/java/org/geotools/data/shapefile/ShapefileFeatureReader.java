@@ -17,9 +17,11 @@
 package org.geotools.data.shapefile;
 
 import java.io.IOException;
+import java.nio.channels.ClosedByInterruptException;
 import java.util.List;
 import java.util.Map;
 import java.util.NoSuchElementException;
+import java.util.function.BooleanSupplier;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 import org.geotools.data.FeatureReader;
@@ -84,6 +86,8 @@ class ShapefileFeatureReader implements FeatureReader<SimpleFeatureType, SimpleF
 
     Filter filter;
 
+    protected BooleanSupplier abortReadingCheck = () -> Thread.currentThread().isInterrupted();
+
     public ShapefileFeatureReader(
             SimpleFeatureType schema,
             ShapefileReader shp,
@@ -95,6 +99,8 @@ class ShapefileFeatureReader implements FeatureReader<SimpleFeatureType, SimpleF
         this.dbf = dbf;
         this.fidReader = fidReader;
         this.builder = new SimpleFeatureBuilder(schema);
+        this.abortReadingCheck = () -> Thread.currentThread().isInterrupted();
+        this.shp.setAbortProcessingSupplier(this.abortReadingCheck);
 
         idxBuffer = new StringBuffer(schema.getTypeName());
         idxBuffer.append('.');
@@ -175,30 +181,35 @@ class ShapefileFeatureReader implements FeatureReader<SimpleFeatureType, SimpleF
 
     @Override
     public boolean hasNext() throws IOException {
-        while (nextFeature == null && filesHaveMore()) {
-            Record record = shp.nextRecord();
-
-            Geometry geometry = getGeometry(record);
-            if (geometry != SKIP) {
-                // also grab the dbf row
-                Row row;
-                if (dbf != null) {
-                    row = dbf.readRow();
-                    if (row.isDeleted()) {
-                        continue;
-                    }
-                } else {
-                    row = null;
+        try {
+            while (nextFeature == null && filesHaveMore()) {
+                Record record = shp.nextRecord();
+                if (abortReadingCheck.getAsBoolean()) {
+                    return false;
                 }
+                Geometry geometry = getGeometry(record);
+                if (geometry != SKIP) {
+                    // also grab the dbf row
+                    Row row;
+                    if (dbf != null) {
+                        row = dbf.readRow();
+                        if (row.isDeleted()) {
+                            continue;
+                        }
+                    } else {
+                        row = null;
+                    }
 
-                nextFeature = buildFeature(record.number, geometry, row, record.envelope());
-            } else {
-                if (dbf != null) {
-                    dbf.skip();
+                    nextFeature = buildFeature(record.number, geometry, row, record.envelope());
+                } else {
+                    if (dbf != null) {
+                        dbf.skip();
+                    }
                 }
             }
+        } catch (ClosedByInterruptException e) {
+            return false;
         }
-
         return nextFeature != null;
     }
 

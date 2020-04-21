@@ -18,6 +18,8 @@ import java.nio.DoubleBuffer;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.Objects;
+import java.util.function.BooleanSupplier;
 import java.util.logging.Logger;
 import org.geotools.geometry.jts.JTS;
 import org.geotools.geometry.jts.coordinatesequence.CoordinateSequences;
@@ -49,6 +51,8 @@ public class PolygonHandler implements ShapeHandler {
 
     final ShapeType shapeType;
 
+    private BooleanSupplier abortProcessing = () -> false;
+
     public PolygonHandler(GeometryFactory gf) {
         shapeType = ShapeType.POLYGON;
         this.geometryFactory = gf;
@@ -64,6 +68,11 @@ public class PolygonHandler implements ShapeHandler {
         this.geometryFactory = gf;
     }
 
+    public @Override void setAbortSupplier(BooleanSupplier check) {
+        Objects.requireNonNull(check);
+        this.abortProcessing = check;
+    }
+
     // returns true if testPoint is a point in the pointList list.
     boolean pointInList(Coordinate testPoint, Coordinate[] pointList) {
         Coordinate p;
@@ -72,7 +81,8 @@ public class PolygonHandler implements ShapeHandler {
             p = pointList[t];
 
             // nan test; x!=x iff x is nan
-            if ((testPoint.x == p.x) && (testPoint.y == p.y)
+            if ((testPoint.x == p.x)
+                    && (testPoint.y == p.y)
                     && ((testPoint.getZ() == p.getZ()) || Double.isNaN(testPoint.getZ()))) {
                 return true;
             }
@@ -136,8 +146,8 @@ public class PolygonHandler implements ShapeHandler {
             partOffsets[i] = buffer.getInt();
         }
 
-        System.err.printf("%n-------%nreading polygon with %,d parts and %,d coords%n", numParts,
-                numPoints);
+        System.err.printf(
+                "%n-------%nreading polygon with %,d parts and %,d coords%n", numParts, numPoints);
         Stopwatch swtotal = new Stopwatch();
 
         STRtree shellsIndex = new STRtree(2 + numParts); // Node capacity must be > 1
@@ -155,6 +165,9 @@ public class PolygonHandler implements ShapeHandler {
         int length;
 
         for (int part = 0; part < numParts; part++) {
+            if (abort()) {
+                return null;
+            }
             start = partOffsets[part];
 
             if (part == (numParts - 1)) {
@@ -165,59 +178,80 @@ public class PolygonHandler implements ShapeHandler {
 
             length = finish - start;
             int close = 0; // '1' if the ring must be closed, '0' otherwise
-            if ((coords.getOrdinate(start, CoordinateSequence.X) != coords.getOrdinate(finish - 1,
-                    CoordinateSequence.X))
-                    || (coords.getOrdinate(start, CoordinateSequence.Y) != coords
-                            .getOrdinate(finish - 1, CoordinateSequence.Y))) {
+            if ((coords.getOrdinate(start, CoordinateSequence.X)
+                            != coords.getOrdinate(finish - 1, CoordinateSequence.X))
+                    || (coords.getOrdinate(start, CoordinateSequence.Y)
+                            != coords.getOrdinate(finish - 1, CoordinateSequence.Y))) {
                 close = 1;
             }
             if (dimensions == 3 && !coords.hasM()) {
-                if (coords.getOrdinate(start, CoordinateSequence.Z) != coords
-                        .getOrdinate(finish - 1, CoordinateSequence.Z)) {
+                if (coords.getOrdinate(start, CoordinateSequence.Z)
+                        != coords.getOrdinate(finish - 1, CoordinateSequence.Z)) {
                     close = 1;
                 }
             }
 
             CoordinateSequence csRing;
             if (coords.hasZ()) {
-                csRing = JTS.createCS(geometryFactory.getCoordinateSequenceFactory(),
-                        length + close, 4, 1);
+                csRing =
+                        JTS.createCS(
+                                geometryFactory.getCoordinateSequenceFactory(),
+                                length + close,
+                                4,
+                                1);
             } else if (coords.hasM()) {
-                csRing = JTS.createCS(geometryFactory.getCoordinateSequenceFactory(),
-                        length + close, 3, 1);
+                csRing =
+                        JTS.createCS(
+                                geometryFactory.getCoordinateSequenceFactory(),
+                                length + close,
+                                3,
+                                1);
             } else {
-                csRing = JTS.createCS(geometryFactory.getCoordinateSequenceFactory(),
-                        length + close, 2);
+                csRing =
+                        JTS.createCS(
+                                geometryFactory.getCoordinateSequenceFactory(), length + close, 2);
             }
 
             // double area = 0;
             // int sx = offset;
             for (int i = 0; i < length; i++) {
-                csRing.setOrdinate(i, CoordinateSequence.X,
-                        coords.getOrdinate(offset, CoordinateSequence.X));
-                csRing.setOrdinate(i, CoordinateSequence.Y,
-                        coords.getOrdinate(offset, CoordinateSequence.Y));
+                csRing.setOrdinate(
+                        i, CoordinateSequence.X, coords.getOrdinate(offset, CoordinateSequence.X));
+                csRing.setOrdinate(
+                        i, CoordinateSequence.Y, coords.getOrdinate(offset, CoordinateSequence.Y));
                 if (coords.hasZ()) {
-                    csRing.setOrdinate(i, CoordinateSequence.Z,
+                    csRing.setOrdinate(
+                            i,
+                            CoordinateSequence.Z,
                             coords.getOrdinate(offset, CoordinateSequence.Z));
                 }
                 if (coords.hasM()) {
-                    csRing.setOrdinate(i, CoordinateSequence.M,
+                    csRing.setOrdinate(
+                            i,
+                            CoordinateSequence.M,
                             coords.getOrdinate(offset, CoordinateSequence.M));
                 }
                 offset++;
             }
             if (close == 1) {
-                csRing.setOrdinate(length, CoordinateSequence.X,
+                csRing.setOrdinate(
+                        length,
+                        CoordinateSequence.X,
                         coords.getOrdinate(start, CoordinateSequence.X));
-                csRing.setOrdinate(length, CoordinateSequence.Y,
+                csRing.setOrdinate(
+                        length,
+                        CoordinateSequence.Y,
                         coords.getOrdinate(start, CoordinateSequence.Y));
                 if (coords.hasZ()) {
-                    csRing.setOrdinate(length, CoordinateSequence.Z,
+                    csRing.setOrdinate(
+                            length,
+                            CoordinateSequence.Z,
                             coords.getOrdinate(start, CoordinateSequence.Z));
                 }
                 if (coords.hasM()) {
-                    csRing.setOrdinate(length, CoordinateSequence.M,
+                    csRing.setOrdinate(
+                            length,
+                            CoordinateSequence.M,
                             coords.getOrdinate(start, CoordinateSequence.M));
                 }
             }
@@ -237,7 +271,8 @@ public class PolygonHandler implements ShapeHandler {
             }
         }
 
-        System.err.printf("LinearRings created in %s, shells: %,d, holes: %,d %n",
+        System.err.printf(
+                "LinearRings created in %s, shells: %,d, holes: %,d %n",
                 sw.getTimeString(), shells.size(), holes.size());
         sw.reset();
 
@@ -255,6 +290,9 @@ public class PolygonHandler implements ShapeHandler {
             // build an association between shells and holes
             final List<List<LinearRing>> holesForShells =
                     assignHolesToShells(shellsIndex, shells, holes);
+            if (abort()) {
+                return null;
+            }
             System.err.printf("Holes assigned to shells in %s %n", sw.getTimeString());
             sw.reset();
 
@@ -275,7 +313,9 @@ public class PolygonHandler implements ShapeHandler {
     }
 
     /** */
-    private Geometry buildGeometries(final List<LinearRing> shells, final List<LinearRing> holes,
+    private Geometry buildGeometries(
+            final List<LinearRing> shells,
+            final List<LinearRing> holes,
             final List<List<LinearRing>> holesForShells) {
         Polygon[] polygons;
 
@@ -291,8 +331,9 @@ public class PolygonHandler implements ShapeHandler {
         for (int i = 0; i < shells.size(); i++) {
             LinearRing shell = shells.get(i);
             List<LinearRing> holesForShell = holesForShells.get(i);
-            polygons[i] = geometryFactory.createPolygon(shell,
-                    holesForShell.toArray(new LinearRing[holesForShell.size()]));
+            polygons[i] =
+                    geometryFactory.createPolygon(
+                            shell, holesForShell.toArray(new LinearRing[holesForShell.size()]));
         }
 
         // this will take care of the "only holes case"
@@ -310,14 +351,19 @@ public class PolygonHandler implements ShapeHandler {
     }
 
     /** <b>Package private for testing</b> */
-    List<List<LinearRing>> assignHolesToShells(final SpatialIndex shellsIndex,
-            final List<LinearRing> shells, final List<LinearRing> holes) {
+    List<List<LinearRing>> assignHolesToShells(
+            final SpatialIndex shellsIndex,
+            final List<LinearRing> shells,
+            final List<LinearRing> holes) {
 
         List<List<LinearRing>> holesForShells =
                 new ArrayList<>(Collections.nCopies(shells.size(), Collections.emptyList()));
 
         // find homes
         for (int i = 0; i < holes.size(); i++) {
+            if (abort()) {
+                return null;
+            }
             LinearRing testHole = (LinearRing) holes.get(i);
             @SuppressWarnings("unchecked")
             List<LinearRing> intersectingShells = shellsIndex.query(testHole.getEnvelopeInternal());
@@ -329,6 +375,9 @@ public class PolygonHandler implements ShapeHandler {
             Coordinate testPt = testHole.getCoordinateN(0);
 
             for (int j = 0; j < intersectingShells.size(); j++) {
+                if (abort()) {
+                    return null;
+                }
                 final LinearRing tryShell = intersectingShells.get(j);
 
                 Envelope tryEnv = tryShell.getEnvelopeInternal();
@@ -377,8 +426,11 @@ public class PolygonHandler implements ShapeHandler {
     }
 
     private MultiPolygon createMulti(LinearRing single, List<LinearRing> holes) {
-        return geometryFactory.createMultiPolygon(new Polygon[] {geometryFactory
-                .createPolygon(single, holes.toArray(new LinearRing[holes.size()]))});
+        return geometryFactory.createMultiPolygon(
+                new Polygon[] {
+                    geometryFactory.createPolygon(
+                            single, holes.toArray(new LinearRing[holes.size()]))
+                });
     }
 
     private MultiPolygon createNull() {
@@ -490,15 +542,23 @@ public class PolygonHandler implements ShapeHandler {
             buffer.putDouble(!Double.isNaN(edge) ? edge : -10E40);
 
             // m values
-            values.forEach(x -> {
-                buffer.putDouble(Double.isNaN(x) ? -10E40 : x);
-            });
+            values.forEach(
+                    x -> {
+                        buffer.putDouble(Double.isNaN(x) ? -10E40 : x);
+                    });
         }
     }
 
-    /**
-     * An {@link ArrayList} to do fast {@link List#indexOf indexOf} checks by reference
-     */
+    private boolean abort() {
+        boolean abort = abortProcessing.getAsBoolean();
+        if (abort) {
+            System.err.println(
+                    "!!!! abort reading, thread interrupted " + Thread.currentThread().getName());
+        }
+        return abort;
+    }
+
+    /** An {@link ArrayList} to do fast {@link List#indexOf indexOf} checks by reference */
     @SuppressWarnings("serial")
     private static class ReferenceCheckingArrayList<E> extends ArrayList<E> {
         public @Override int indexOf(Object o) {

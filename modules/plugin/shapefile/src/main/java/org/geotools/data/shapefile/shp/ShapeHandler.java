@@ -17,6 +17,7 @@
 package org.geotools.data.shapefile.shp;
 
 import java.nio.ByteBuffer;
+import java.util.function.BooleanSupplier;
 
 /**
  * A ShapeHandler defines what is needed to construct and persist geometries based upon the
@@ -26,6 +27,9 @@ import java.nio.ByteBuffer;
  * @author Ian Schneider
  */
 public interface ShapeHandler {
+
+    public void setAbortSupplier(BooleanSupplier check);
+
     /**
      * Get the ShapeType of this handler.
      *

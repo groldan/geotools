@@ -22,6 +22,8 @@ import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.nio.channels.FileChannel;
 import java.nio.channels.ReadableByteChannel;
+import java.util.Objects;
+import java.util.function.BooleanSupplier;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 import org.geotools.data.DataSourceException;
@@ -223,6 +225,8 @@ public class ShapefileReader implements FileReader {
 
     private boolean flatGeometry;
 
+    private BooleanSupplier abortProcessing = () -> false;
+
     /**
      * Creates a new instance of ShapeFile.
      *
@@ -275,6 +279,12 @@ public class ShapefileReader implements FileReader {
             }
         }
         init(strict, gf);
+    }
+
+    public void setAbortProcessingSupplier(BooleanSupplier check) {
+        Objects.requireNonNull(check);
+        this.abortProcessing = check;
+        this.handler.setAbortSupplier(this.abortProcessing);
     }
 
     /**
@@ -349,6 +359,7 @@ public class ShapefileReader implements FileReader {
         if (handler == null) {
             throw new IOException("Unsuported shape type:" + fileShapeType);
         }
+        handler.setAbortSupplier(this.abortProcessing);
 
         headerTransfer = ByteBuffer.allocate(8);
         headerTransfer.order(ByteOrder.BIG_ENDIAN);

@@ -32,8 +32,8 @@ class BufferCoordinateSequence implements CoordinateSequence {
     private final int mOffset;
     private final int dimensions;
 
-    BufferCoordinateSequence(DoubleBuffer buffer, final int size, final boolean hasZ,
-            final boolean hasM) {
+    BufferCoordinateSequence(
+            DoubleBuffer buffer, final int size, final boolean hasZ, final boolean hasM) {
         if (hasM && !hasZ) {
             throw new IllegalArgumentException("hasM implies hasZ");
         }

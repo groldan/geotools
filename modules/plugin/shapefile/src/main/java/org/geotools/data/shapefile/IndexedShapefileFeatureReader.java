@@ -17,6 +17,7 @@
 package org.geotools.data.shapefile;
 
 import java.io.IOException;
+import java.nio.channels.ClosedByInterruptException;
 import org.geotools.data.CloseableIterator;
 import org.geotools.data.shapefile.dbf.DbaseFileReader;
 import org.geotools.data.shapefile.dbf.DbaseFileReader.Row;
@@ -71,30 +72,37 @@ class IndexedShapefileFeatureReader extends ShapefileFeatureReader {
     }
 
     public boolean hasNext() throws IOException {
-        while (nextFeature == null && this.goodRecs.hasNext()) {
-            next = goodRecs.next();
+        try {
+            while (nextFeature == null && this.goodRecs.hasNext()) {
+                next = goodRecs.next();
 
-            Long l = (Long) next.getValue(1);
-            shp.goTo((int) l.longValue());
+                Long l = (Long) next.getValue(1);
+                shp.goTo((int) l.longValue());
 
-            Record record = shp.nextRecord();
+                Record record = shp.nextRecord();
+                if (abortReadingCheck.getAsBoolean()) {
+                    return false;
+                }
 
-            // read the geometry, so that we can decide if this row is to be skipped or not
-            Geometry geometry = getGeometry(record);
-            if (geometry == SKIP) {
-                continue;
+                // read the geometry, so that we can decide if this row is to be skipped or not
+                Geometry geometry = getGeometry(record);
+                if (geometry == SKIP) {
+                    continue;
+                }
+
+                // read the dbf only if the geometry was not skipped
+                Row row;
+                if (dbf != null) {
+                    ((IndexedDbaseFileReader) dbf).goTo(record.number);
+                    row = dbf.readRow();
+                } else {
+                    row = null;
+                }
+
+                nextFeature = buildFeature(record.number, geometry, row, record.envelope());
             }
-
-            // read the dbf only if the geometry was not skipped
-            Row row;
-            if (dbf != null) {
-                ((IndexedDbaseFileReader) dbf).goTo(record.number);
-                row = dbf.readRow();
-            } else {
-                row = null;
-            }
-
-            nextFeature = buildFeature(record.number, geometry, row, record.envelope());
+        } catch (ClosedByInterruptException e) {
+            return false;
         }
 
         return nextFeature != null;
