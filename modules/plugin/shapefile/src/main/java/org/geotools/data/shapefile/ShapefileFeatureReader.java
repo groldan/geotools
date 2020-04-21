@@ -17,9 +17,11 @@
 package org.geotools.data.shapefile;
 
 import java.io.IOException;
+import java.nio.channels.ClosedByInterruptException;
 import java.util.List;
 import java.util.Map;
 import java.util.NoSuchElementException;
+import java.util.function.BooleanSupplier;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 import org.geotools.data.FeatureReader;
@@ -84,6 +86,15 @@ class ShapefileFeatureReader implements FeatureReader<SimpleFeatureType, SimpleF
 
     Filter filter;
 
+    /**
+     * Checks whether {@link Thread#isInterrupted() Thread.currentThread().isInterrupted()} in order
+     * to abort reading. Given to the {@link ShapefileReader#setAbortProcessingSupplier
+     * ShapefileReader} to stop reading and checked at {@link #hasNext()} to return {@code false}
+     * immediatly before processing the {@link Record} returned by {@link
+     * ShapefileReader#nextRecord()}
+     */
+    protected BooleanSupplier abortReadingCheck;
+
     public ShapefileFeatureReader(
             SimpleFeatureType schema,
             ShapefileReader shp,
@@ -95,6 +106,8 @@ class ShapefileFeatureReader implements FeatureReader<SimpleFeatureType, SimpleF
         this.dbf = dbf;
         this.fidReader = fidReader;
         this.builder = new SimpleFeatureBuilder(schema);
+        this.abortReadingCheck = () -> Thread.currentThread().isInterrupted();
+        this.shp.setAbortProcessingSupplier(this.abortReadingCheck);
 
         idxBuffer = new StringBuffer(schema.getTypeName());
         idxBuffer.append('.');
@@ -139,6 +152,12 @@ class ShapefileFeatureReader implements FeatureReader<SimpleFeatureType, SimpleF
         }
     }
 
+    // visible for testing
+    void setAbortReadingCheck(BooleanSupplier check) {
+        this.abortReadingCheck = check;
+        this.shp.setAbortProcessingSupplier(this.abortReadingCheck);
+    }
+
     @Override
     public SimpleFeatureType getFeatureType() {
         return schema;
@@ -173,32 +192,43 @@ class ShapefileFeatureReader implements FeatureReader<SimpleFeatureType, SimpleF
         }
     }
 
+    /**
+     * {@inheritDoc}
+     *
+     * @return {@code true} if there are more features to be read, {@code false} if reached the end
+     *     of the shapefile or a {@link ClosedByInterruptException} was caught due to the thread
+     *     being interrupted.
+     * @throws IOException if a non {@link ClosedByInterruptException} IO error is thrown while
+     *     reading
+     */
     @Override
     public boolean hasNext() throws IOException {
-        while (nextFeature == null && filesHaveMore()) {
-            Record record = shp.nextRecord();
-
-            Geometry geometry = getGeometry(record);
-            if (geometry != SKIP) {
-                // also grab the dbf row
-                Row row;
-                if (dbf != null) {
-                    row = dbf.readRow();
-                    if (row.isDeleted()) {
-                        continue;
+        try {
+            while (nextFeature == null && !abortReadingCheck.getAsBoolean() && filesHaveMore()) {
+                Record record = shp.nextRecord();
+                Geometry geometry = getGeometry(record);
+                if (geometry != SKIP) {
+                    // also grab the dbf row
+                    Row row;
+                    if (dbf != null) {
+                        row = dbf.readRow();
+                        if (row.isDeleted()) {
+                            continue;
+                        }
+                    } else {
+                        row = null;
                     }
-                } else {
-                    row = null;
-                }
 
-                nextFeature = buildFeature(record.number, geometry, row, record.envelope());
-            } else {
-                if (dbf != null) {
-                    dbf.skip();
+                    nextFeature = buildFeature(record.number, geometry, row, record.envelope());
+                } else {
+                    if (dbf != null) {
+                        dbf.skip();
+                    }
                 }
             }
+        } catch (ClosedByInterruptException e) {
+            return false;
         }
-
         return nextFeature != null;
     }
 

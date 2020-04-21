@@ -20,6 +20,8 @@ import java.nio.ByteBuffer;
 import java.nio.DoubleBuffer;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Objects;
+import java.util.function.BooleanSupplier;
 import java.util.logging.Logger;
 import org.geotools.geometry.jts.JTS;
 import org.geotools.geometry.jts.coordinatesequence.CoordinateSequences;
@@ -48,6 +50,8 @@ public class PolygonHandler implements ShapeHandler {
 
     final ShapeType shapeType;
 
+    private BooleanSupplier abortProcessing = () -> false;
+
     public PolygonHandler(GeometryFactory gf) {
         shapeType = ShapeType.POLYGON;
         this.geometryFactory = gf;
@@ -61,6 +65,11 @@ public class PolygonHandler implements ShapeHandler {
 
         shapeType = type;
         this.geometryFactory = gf;
+    }
+
+    public @Override void setAbortSupplier(BooleanSupplier check) {
+        Objects.requireNonNull(check);
+        this.abortProcessing = check;
     }
 
     // returns true if testPoint is a point in the pointList list.
@@ -146,6 +155,9 @@ public class PolygonHandler implements ShapeHandler {
         int length;
 
         for (int part = 0; part < numParts; part++) {
+            if (abort()) {
+                return null;
+            }
             start = partOffsets[part];
 
             if (part == (numParts - 1)) {
@@ -261,6 +273,9 @@ public class PolygonHandler implements ShapeHandler {
 
             // build an association between shells and holes
             final List<List<LinearRing>> holesForShells = assignHolesToShells(shells, holes);
+            if (abort()) {
+                return null;
+            }
 
             Geometry g = buildGeometries(shells, holes, holesForShells);
 
@@ -358,6 +373,9 @@ public class PolygonHandler implements ShapeHandler {
         // find homes
         for (int i = 0; i < holes.size(); i++) {
             LinearRing testRing = (LinearRing) holes.get(i);
+            if (abort()) {
+                return null;
+            }
             LinearRing minShell = null;
             Envelope minEnv = null;
             Envelope testEnv = testRing.getEnvelopeInternal();
@@ -366,6 +384,9 @@ public class PolygonHandler implements ShapeHandler {
 
             for (int j = 0; j < shells.size(); j++) {
                 tryRing = shells.get(j);
+                if (abort()) {
+                    return null;
+                }
 
                 Envelope tryEnv = tryRing.getEnvelopeInternal();
                 if (minShell != null) {
@@ -528,6 +549,10 @@ public class PolygonHandler implements ShapeHandler {
                         buffer.putDouble(Double.isNaN(x) ? -10E40 : x);
                     });
         }
+    }
+
+    private final boolean abort() {
+        return this.abortProcessing.getAsBoolean();
     }
 }
 

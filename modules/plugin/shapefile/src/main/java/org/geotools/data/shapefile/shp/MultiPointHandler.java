@@ -20,6 +20,8 @@ import java.nio.ByteBuffer;
 import java.nio.DoubleBuffer;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Objects;
+import java.util.function.BooleanSupplier;
 import org.geotools.geometry.jts.JTS;
 import org.locationtech.jts.geom.Coordinate;
 import org.locationtech.jts.geom.CoordinateSequence;
@@ -36,6 +38,7 @@ import org.locationtech.jts.geom.impl.CoordinateArraySequence;
 public class MultiPointHandler implements ShapeHandler {
     final ShapeType shapeType;
     GeometryFactory geometryFactory;
+    private BooleanSupplier abortProcessing = () -> false;
 
     /** Creates new MultiPointHandler */
     public MultiPointHandler(GeometryFactory gf) {
@@ -51,6 +54,11 @@ public class MultiPointHandler implements ShapeHandler {
 
         shapeType = type;
         this.geometryFactory = gf;
+    }
+
+    public @Override void setAbortSupplier(BooleanSupplier check) {
+        Objects.requireNonNull(check);
+        this.abortProcessing = check;
     }
 
     /**
@@ -129,6 +137,9 @@ public class MultiPointHandler implements ShapeHandler {
         for (int t = 0; t < numpoints; t++) {
             cs.setOrdinate(t, CoordinateSequence.X, ordinates[t * 2]);
             cs.setOrdinate(t, CoordinateSequence.Y, ordinates[t * 2 + 1]);
+        }
+        if (abortProcessing.getAsBoolean()) {
+            return null;
         }
 
         if (shapeType == ShapeType.MULTIPOINTZ && !flatGeometry) {

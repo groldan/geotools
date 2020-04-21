@@ -17,6 +17,8 @@
 package org.geotools.data.shapefile.shp;
 
 import java.nio.ByteBuffer;
+import java.util.Objects;
+import java.util.function.BooleanSupplier;
 import org.locationtech.jts.geom.Coordinate;
 import org.locationtech.jts.geom.CoordinateXY;
 import org.locationtech.jts.geom.CoordinateXYM;
@@ -34,6 +36,7 @@ public class PointHandler implements ShapeHandler {
 
     final ShapeType shapeType;
     GeometryFactory geometryFactory;
+    private BooleanSupplier abortProcessing = () -> false;
 
     public PointHandler(ShapeType type, GeometryFactory gf) throws ShapefileException {
         if ((type != ShapeType.POINT)
@@ -51,6 +54,10 @@ public class PointHandler implements ShapeHandler {
         shapeType = ShapeType.POINT; // 2d
     }
 
+    public @Override void setAbortSupplier(BooleanSupplier check) {
+        Objects.requireNonNull(check);
+        this.abortProcessing = check;
+    }
     /**
      * Returns the shapefile shape type value for a point
      *
@@ -100,6 +107,9 @@ public class PointHandler implements ShapeHandler {
             c.setM(buffer.getDouble());
         }
 
+        if (abortProcessing.getAsBoolean()) {
+            return null;
+        }
         return geometryFactory.createPoint(c);
     }
 

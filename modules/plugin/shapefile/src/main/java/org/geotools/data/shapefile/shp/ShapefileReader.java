@@ -22,6 +22,7 @@ import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.nio.channels.FileChannel;
 import java.nio.channels.ReadableByteChannel;
+import java.util.function.BooleanSupplier;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 import org.geotools.data.DataSourceException;
@@ -278,6 +279,15 @@ public class ShapefileReader implements FileReader {
     }
 
     /**
+     * Sets the abort processing supplier on the {@link ShapeHandler}
+     *
+     * @see ShapeHandler#setAbortSupplier(BooleanSupplier)
+     */
+    public void setAbortProcessingSupplier(BooleanSupplier check) {
+        this.handler.setAbortSupplier(check);
+    }
+
+    /**
      * Disables .shx file usage. By doing so you drop support for sparse shapefiles, the .shp will
      * have to be without holes, all the valid shapefile records will have to be contiguous.
      */
@@ -349,7 +359,6 @@ public class ShapefileReader implements FileReader {
         if (handler == null) {
             throw new IOException("Unsuported shape type:" + fileShapeType);
         }
-
         headerTransfer = ByteBuffer.allocate(8);
         headerTransfer.order(ByteOrder.BIG_ENDIAN);
 
@@ -733,11 +742,6 @@ public class ShapefileReader implements FileReader {
             throw new DataSourceException("Problem reading shapefile record", ioe);
         }
         return count;
-    }
-
-    /** @param handler The handler to set. */
-    public void setHandler(ShapeHandler handler) {
-        this.handler = handler;
     }
 
     public String id() {

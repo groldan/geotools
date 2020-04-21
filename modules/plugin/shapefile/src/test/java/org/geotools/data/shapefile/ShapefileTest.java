@@ -26,6 +26,7 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.NoSuchElementException;
 import org.geotools.TestData;
 import org.geotools.data.DataStore;
 import org.geotools.data.DataUtilities;
@@ -44,7 +45,9 @@ import org.geotools.factory.CommonFactoryFinder;
 import org.geotools.feature.DefaultFeatureCollection;
 import org.geotools.feature.simple.SimpleFeatureTypeBuilder;
 import org.geotools.referencing.operation.transform.IdentityTransform;
+import org.junit.Rule;
 import org.junit.Test;
+import org.junit.rules.ExpectedException;
 import org.locationtech.jts.geom.Envelope;
 import org.locationtech.jts.geom.Geometry;
 import org.locationtech.jts.geom.GeometryFactory;
@@ -71,6 +74,8 @@ public class ShapefileTest extends TestCaseSupport {
 
     private static final String SHP_FILTER_BEFORE_SCREENMAP = "filter-before-screenmap";
     private static final String SHP_SCREENMAP_WITH_DELETED_ROW = "screenmap-deleted";
+
+    public @Rule ExpectedException expected = ExpectedException.none();
 
     @Test
     public void testLoadingStatePop() throws Exception {
@@ -421,6 +426,122 @@ public class ShapefileTest extends TestCaseSupport {
                 filterFid,
                 expectedName,
                 expectedFid);
+    }
+
+    @Test
+    public void testShapefileFeatureReaderRespectsAbortReadingFlag() throws IOException {
+        URL shpUrl = TestData.url(STATEPOP);
+        Map<String, Serializable> params = new HashMap<String, Serializable>();
+        params.put(ShapefileDataStoreFactory.URLP.key, shpUrl);
+        params.put(ShapefileDataStoreFactory.CREATE_SPATIAL_INDEX.key, Boolean.FALSE);
+        ShapefileDataStore ds =
+                (ShapefileDataStore) new ShapefileDataStoreFactory().createDataStore(params);
+        try (ShapefileFeatureReader reader = (ShapefileFeatureReader) ds.getFeatureReader()) {
+
+            assertFalse(reader instanceof IndexedShapefileFeatureReader);
+            assertTrue(reader.hasNext());
+            assertNotNull(reader.next());
+            reader.setAbortReadingCheck(() -> true);
+            assertFalse(reader.hasNext());
+            this.expected.expect(NoSuchElementException.class);
+            reader.next();
+        }
+    }
+
+    @Test
+    public void testIndexedShapefileFeatureReaderRespectsAbortReadingFlag() throws IOException {
+        File file = copyShapefiles(STATEPOP);
+        Map<String, Serializable> params = new HashMap<String, Serializable>();
+        params.put(ShapefileDataStoreFactory.URLP.key, file.toURI().toURL());
+        params.put(ShapefileDataStoreFactory.CREATE_SPATIAL_INDEX.key, Boolean.TRUE);
+        ShapefileDataStore ds =
+                (ShapefileDataStore) new ShapefileDataStoreFactory().createDataStore(params);
+        // make a fid query to get a indexed reader
+        String typeName = ds.getTypeName().getLocalPart();
+        Filter filter =
+                ff.id(
+                        ff.featureId(typeName + ".1"),
+                        ff.featureId(typeName + ".2"),
+                        ff.featureId(typeName + ".3"));
+        // force creation of a fid index
+        ds.indexManager.hasFidIndex(true);
+        try (ShapefileFeatureReader reader =
+                (ShapefileFeatureReader)
+                        ds.getFeatureReader(new Query(typeName, filter), Transaction.AUTO_COMMIT)) {
+
+            assertTrue(reader instanceof IndexedShapefileFeatureReader);
+
+            assertTrue(reader.hasNext());
+            assertNotNull(reader.next());
+
+            reader.setAbortReadingCheck(() -> true);
+            assertFalse(reader.hasNext());
+            this.expected.expect(NoSuchElementException.class);
+            reader.next();
+        }
+    }
+
+    @Test
+    public void testShapefileFeatureReaderRespectsClosedByInterruptException() throws IOException {
+        URL shpUrl = TestData.url(STATEPOP);
+        Map<String, Serializable> params = new HashMap<String, Serializable>();
+        params.put(ShapefileDataStoreFactory.URLP.key, shpUrl);
+        params.put(ShapefileDataStoreFactory.CREATE_SPATIAL_INDEX.key, Boolean.FALSE);
+        ShapefileDataStore ds =
+                (ShapefileDataStore) new ShapefileDataStoreFactory().createDataStore(params);
+
+        try (ShapefileFeatureReader reader = (ShapefileFeatureReader) ds.getFeatureReader()) {
+            assertTrue(reader.hasNext());
+            assertNotNull(reader.next());
+
+            Thread.currentThread().interrupt();
+            assertFalse(reader.hasNext());
+            this.expected.expect(NoSuchElementException.class);
+            reader.next();
+        } finally {
+            assertTrue(Thread.interrupted());
+            assertFalse(
+                    "just over-stating that the interrupted flag's been cleared",
+                    Thread.interrupted());
+        }
+    }
+
+    @Test
+    public void testIndexedShapefileFeatureReaderRespectsClosedByInterruptException()
+            throws IOException {
+        File file = copyShapefiles(STATEPOP);
+        Map<String, Serializable> params = new HashMap<String, Serializable>();
+        params.put(ShapefileDataStoreFactory.URLP.key, file.toURI().toURL());
+        params.put(ShapefileDataStoreFactory.CREATE_SPATIAL_INDEX.key, Boolean.TRUE);
+        ShapefileDataStore ds =
+                (ShapefileDataStore) new ShapefileDataStoreFactory().createDataStore(params);
+        // make a fid query to get a indexed reader
+        String typeName = ds.getTypeName().getLocalPart();
+        Filter filter =
+                ff.id(
+                        ff.featureId(typeName + ".1"),
+                        ff.featureId(typeName + ".2"),
+                        ff.featureId(typeName + ".3"));
+        // force creation of a fid index
+        ds.indexManager.hasFidIndex(true);
+        try (ShapefileFeatureReader reader =
+                (ShapefileFeatureReader)
+                        ds.getFeatureReader(new Query(typeName, filter), Transaction.AUTO_COMMIT)) {
+            assertTrue(reader instanceof IndexedShapefileFeatureReader);
+
+            assertTrue(reader.hasNext());
+            assertNotNull(reader.next());
+
+            Thread.currentThread().interrupt();
+            assertFalse(reader.hasNext());
+            this.expected.expect(NoSuchElementException.class);
+            reader.next();
+        } finally {
+            assertTrue(Thread.interrupted());
+            assertFalse(
+                    "just over-stating that the interrupted flag's been cleared",
+                    Thread.interrupted());
+        }
     }
 
     private void testScreenMap(
