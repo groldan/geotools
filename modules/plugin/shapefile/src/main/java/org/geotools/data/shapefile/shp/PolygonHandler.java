@@ -72,8 +72,7 @@ public class PolygonHandler implements ShapeHandler {
             p = pointList[t];
 
             // nan test; x!=x iff x is nan
-            if ((testPoint.x == p.x)
-                    && (testPoint.y == p.y)
+            if ((testPoint.x == p.x) && (testPoint.y == p.y)
                     && ((testPoint.getZ() == p.getZ()) || Double.isNaN(testPoint.getZ()))) {
                 return true;
             }
@@ -137,8 +136,8 @@ public class PolygonHandler implements ShapeHandler {
             partOffsets[i] = buffer.getInt();
         }
 
-        System.err.printf(
-                "%n-------%nreading polygon with %,d parts and %,d coords%n", numParts, numPoints);
+        System.err.printf("%n-------%nreading polygon with %,d parts and %,d coords%n", numParts,
+                numPoints);
         Stopwatch swtotal = new Stopwatch();
 
         STRtree shellsIndex = new STRtree(2 + numParts); // Node capacity must be > 1
@@ -166,80 +165,59 @@ public class PolygonHandler implements ShapeHandler {
 
             length = finish - start;
             int close = 0; // '1' if the ring must be closed, '0' otherwise
-            if ((coords.getOrdinate(start, CoordinateSequence.X)
-                            != coords.getOrdinate(finish - 1, CoordinateSequence.X))
-                    || (coords.getOrdinate(start, CoordinateSequence.Y)
-                            != coords.getOrdinate(finish - 1, CoordinateSequence.Y))) {
+            if ((coords.getOrdinate(start, CoordinateSequence.X) != coords.getOrdinate(finish - 1,
+                    CoordinateSequence.X))
+                    || (coords.getOrdinate(start, CoordinateSequence.Y) != coords
+                            .getOrdinate(finish - 1, CoordinateSequence.Y))) {
                 close = 1;
             }
             if (dimensions == 3 && !coords.hasM()) {
-                if (coords.getOrdinate(start, CoordinateSequence.Z)
-                        != coords.getOrdinate(finish - 1, CoordinateSequence.Z)) {
+                if (coords.getOrdinate(start, CoordinateSequence.Z) != coords
+                        .getOrdinate(finish - 1, CoordinateSequence.Z)) {
                     close = 1;
                 }
             }
 
             CoordinateSequence csRing;
             if (coords.hasZ()) {
-                csRing =
-                        JTS.createCS(
-                                geometryFactory.getCoordinateSequenceFactory(),
-                                length + close,
-                                4,
-                                1);
+                csRing = JTS.createCS(geometryFactory.getCoordinateSequenceFactory(),
+                        length + close, 4, 1);
             } else if (coords.hasM()) {
-                csRing =
-                        JTS.createCS(
-                                geometryFactory.getCoordinateSequenceFactory(),
-                                length + close,
-                                3,
-                                1);
+                csRing = JTS.createCS(geometryFactory.getCoordinateSequenceFactory(),
+                        length + close, 3, 1);
             } else {
-                csRing =
-                        JTS.createCS(
-                                geometryFactory.getCoordinateSequenceFactory(), length + close, 2);
+                csRing = JTS.createCS(geometryFactory.getCoordinateSequenceFactory(),
+                        length + close, 2);
             }
 
             // double area = 0;
             // int sx = offset;
             for (int i = 0; i < length; i++) {
-                csRing.setOrdinate(
-                        i, CoordinateSequence.X, coords.getOrdinate(offset, CoordinateSequence.X));
-                csRing.setOrdinate(
-                        i, CoordinateSequence.Y, coords.getOrdinate(offset, CoordinateSequence.Y));
+                csRing.setOrdinate(i, CoordinateSequence.X,
+                        coords.getOrdinate(offset, CoordinateSequence.X));
+                csRing.setOrdinate(i, CoordinateSequence.Y,
+                        coords.getOrdinate(offset, CoordinateSequence.Y));
                 if (coords.hasZ()) {
-                    csRing.setOrdinate(
-                            i,
-                            CoordinateSequence.Z,
+                    csRing.setOrdinate(i, CoordinateSequence.Z,
                             coords.getOrdinate(offset, CoordinateSequence.Z));
                 }
                 if (coords.hasM()) {
-                    csRing.setOrdinate(
-                            i,
-                            CoordinateSequence.M,
+                    csRing.setOrdinate(i, CoordinateSequence.M,
                             coords.getOrdinate(offset, CoordinateSequence.M));
                 }
                 offset++;
             }
             if (close == 1) {
-                csRing.setOrdinate(
-                        length,
-                        CoordinateSequence.X,
+                csRing.setOrdinate(length, CoordinateSequence.X,
                         coords.getOrdinate(start, CoordinateSequence.X));
-                csRing.setOrdinate(
-                        length,
-                        CoordinateSequence.Y,
+                csRing.setOrdinate(length, CoordinateSequence.Y,
                         coords.getOrdinate(start, CoordinateSequence.Y));
                 if (coords.hasZ()) {
-                    csRing.setOrdinate(
-                            length,
-                            CoordinateSequence.Z,
+                    csRing.setOrdinate(length, CoordinateSequence.Z,
                             coords.getOrdinate(start, CoordinateSequence.Z));
                 }
                 if (coords.hasM()) {
-                    csRing.setOrdinate(
-                            length,
-                            CoordinateSequence.M,
+                    csRing.setOrdinate(length, CoordinateSequence.M,
                             coords.getOrdinate(start, CoordinateSequence.M));
                 }
             }
@@ -259,8 +237,7 @@ public class PolygonHandler implements ShapeHandler {
             }
         }
 
-        System.err.printf(
-                "LinearRings created in %s, shells: %,d, holes: %,d %n",
+        System.err.printf("LinearRings created in %s, shells: %,d, holes: %,d %n",
                 sw.getTimeString(), shells.size(), holes.size());
         sw.reset();
 
@@ -298,9 +275,7 @@ public class PolygonHandler implements ShapeHandler {
     }
 
     /** */
-    private Geometry buildGeometries(
-            final List<LinearRing> shells,
-            final List<LinearRing> holes,
+    private Geometry buildGeometries(final List<LinearRing> shells, final List<LinearRing> holes,
             final List<List<LinearRing>> holesForShells) {
         Polygon[] polygons;
 
@@ -316,9 +291,8 @@ public class PolygonHandler implements ShapeHandler {
         for (int i = 0; i < shells.size(); i++) {
             LinearRing shell = shells.get(i);
             List<LinearRing> holesForShell = holesForShells.get(i);
-            polygons[i] =
-                    geometryFactory.createPolygon(
-                            shell, holesForShell.toArray(new LinearRing[holesForShell.size()]));
+            polygons[i] = geometryFactory.createPolygon(shell,
+                    holesForShell.toArray(new LinearRing[holesForShell.size()]));
         }
 
         // this will take care of the "only holes case"
@@ -336,10 +310,8 @@ public class PolygonHandler implements ShapeHandler {
     }
 
     /** <b>Package private for testing</b> */
-    List<List<LinearRing>> assignHolesToShells(
-            final SpatialIndex shellsIndex,
-            final List<LinearRing> shells,
-            final List<LinearRing> holes) {
+    List<List<LinearRing>> assignHolesToShells(final SpatialIndex shellsIndex,
+            final List<LinearRing> shells, final List<LinearRing> holes) {
 
         List<List<LinearRing>> holesForShells =
                 new ArrayList<>(Collections.nCopies(shells.size(), Collections.emptyList()));
@@ -400,75 +372,13 @@ public class PolygonHandler implements ShapeHandler {
         return holesForShells;
     }
 
-    List<List<LinearRing>> assignHolesToShells(
-            final ArrayList<LinearRing> shells, final ArrayList<LinearRing> holes) {
-
-        List<List<LinearRing>> holesForShells =
-                new ArrayList<>(Collections.nCopies(shells.size(), Collections.emptyList()));
-
-        // find homes
-        for (int i = 0; i < holes.size(); i++) {
-            LinearRing testRing = (LinearRing) holes.get(i);
-            LinearRing minShell = null;
-            int minShellIndex = -1;
-            Envelope minEnv = null;
-            Envelope testEnv = testRing.getEnvelopeInternal();
-            Coordinate testPt = testRing.getCoordinateN(0);
-
-            for (int j = 0; j < shells.size(); j++) {
-                final LinearRing tryRing = shells.get(j);
-
-                Envelope tryEnv = tryRing.getEnvelopeInternal();
-                if (minShell != null) {
-                    minEnv = minShell.getEnvelopeInternal();
-                }
-
-                boolean isContained = false;
-                Coordinate[] coordList = tryRing.getCoordinates();
-
-                if (tryEnv.contains(testEnv)
-                        && (RayCrossingCounter.locatePointInRing(testPt, coordList) != 2
-                                || (pointInList(testPt, coordList)))) {
-                    isContained = true;
-                }
-
-                // check if this new containing ring is smaller than the current
-                // minimum ring
-                if (isContained) {
-                    if ((minShell == null) || minEnv.contains(tryEnv)) {
-                        minShell = tryRing;
-                        minShellIndex = j;
-                    }
-                }
-            }
-
-            if (minShell == null) {
-                // now reverse this bad "hole" and turn it into a shell
-                shells.add(testRing);
-                holesForShells.add(Collections.emptyList());
-            } else {
-                List<LinearRing> list = holesForShells.get(minShellIndex);
-                if (list.isEmpty()) {
-                    list = new ArrayList<>();
-                    holesForShells.set(minShellIndex, list);
-                }
-                list.add(testRing);
-            }
-        }
-
-        return holesForShells;
-    }
-
     private MultiPolygon createMulti(LinearRing single) {
         return createMulti(single, java.util.Collections.emptyList());
     }
 
     private MultiPolygon createMulti(LinearRing single, List<LinearRing> holes) {
-        return geometryFactory.createMultiPolygon(
-                new Polygon[] {
-                    geometryFactory.createPolygon(
-                            single, holes.toArray(new LinearRing[holes.size()]))
-                });
+        return geometryFactory.createMultiPolygon(new Polygon[] {geometryFactory
+                .createPolygon(single, holes.toArray(new LinearRing[holes.size()]))});
     }
 
     private MultiPolygon createNull() {
@@ -580,10 +490,9 @@ public class PolygonHandler implements ShapeHandler {
             buffer.putDouble(!Double.isNaN(edge) ? edge : -10E40);
 
             // m values
-            values.forEach(
-                    x -> {
-                        buffer.putDouble(Double.isNaN(x) ? -10E40 : x);
-                    });
+            values.forEach(x -> {
+                buffer.putDouble(Double.isNaN(x) ? -10E40 : x);
+            });
         }
     }
 
