@@ -264,7 +264,7 @@ public class StreamingRenderer implements GTRenderer {
      * This flag is set to false when starting rendering, and will be checked during the rendering
      * loop in order to make it stop forcefully
      */
-    boolean renderingStopRequested = false;
+    volatile boolean renderingStopRequested = false;
 
     /**
      * The ratio required to scale the features to be rendered so that they fit into the output
@@ -425,6 +425,13 @@ public class StreamingRenderer implements GTRenderer {
     private ExecutorService threadPool;
 
     private PainterThread painterThread;
+    /**
+     * The thread that called {@link #paint}, held as an instance variable for {@link
+     * #stopRendering()} to set its {@link Thread#interrupt() interrupted status} as a hint for
+     * feature readers to abort as quickly as possible. The thread's interrupted status is then
+     * cleared out before returning from {@link #paint}
+     */
+    private Thread processingThread;
 
     private static int MAX_PIXELS_DENSIFY =
             Integer.valueOf(System.getProperty("ADVANCED_PROJECTION_DENSIFY_MAX_PIXELS", "5"));
@@ -523,12 +530,20 @@ public class StreamingRenderer implements GTRenderer {
      * <code>render</code> the rendering will be forcefully stopped before termination
      */
     public void stopRendering() {
+        if (processingThread == null) { // has paint been called at all?
+            return;
+        }
         renderingStopRequested = true;
         // un-block the queue in case it was filled with requests and the main
         // thread got blocked on it
         requests.clear();
         // wake up the painter and put a death pill in the queue
         painterThread.interrupt();
+
+        // give feature readers a chance to abort quickly by checking
+        // Thread.currentThread().isInterrupted(). paint() will clear the interrupted status
+        // before returning.
+        processingThread.interrupt();
         try {
             requests.put(new EndRequest());
         } catch (InterruptedException e) {
@@ -811,6 +826,8 @@ public class StreamingRenderer implements GTRenderer {
         // Setup the secondary painting thread
         requests = getRequestsQueue();
         painterThread = new PainterThread(requests);
+        // save the current thread to call interrupt() on it in case of stopRendering()
+        processingThread = Thread.currentThread();
         ExecutorService localThreadPool = threadPool;
         boolean localPool = false;
         if (localThreadPool == null) {
@@ -923,6 +940,10 @@ public class StreamingRenderer implements GTRenderer {
                 }
             }
         } finally {
+            // clear out the interrupted status on the processing thread, if any. This is the
+            // same than this.processingThread, only that this method queries and clears out the
+            // interrupted status
+            Thread.interrupted();
             try {
                 // clean up generated map contents (in finally block to ensure it's done regardless
                 // of how we got here
@@ -940,6 +961,8 @@ public class StreamingRenderer implements GTRenderer {
                         requests.put(new EndRequest());
                         painterFuture.get();
                     }
+                } catch (InterruptedException ignore) {
+                    LOGGER.info("Interrupted while sending the final EndRequest, ignoring");
                 } catch (Exception e) {
                     painterFuture.cancel(true);
                     fireErrorEvent(e);
@@ -947,6 +970,9 @@ public class StreamingRenderer implements GTRenderer {
                     if (localPool) {
                         localThreadPool.shutdown();
                     }
+                    requests = null;
+                    painterThread = null;
+                    processingThread = null;
                 }
             }
         }
@@ -2607,6 +2633,7 @@ public class StreamingRenderer implements GTRenderer {
 
         // for each lite feature type style, scan the whole collection and draw
         for (LiteFeatureTypeStyle liteFeatureTypeStyle : lfts) {
+            if (renderingStopRequested) return;
             try (FeatureIterator<?> featureIterator =
                     ((FeatureCollection<?, ?>) features).features()) {
                 if (featureIterator == null) {
@@ -2643,13 +2670,13 @@ public class StreamingRenderer implements GTRenderer {
                 // one is there to make sure a single feature error does not ruin the rendering
                 // (best effort) whilst an exception in hasNext() + ignoring catch results in
                 // an infinite loop
-                while (featureIterator.hasNext() && !renderingStopRequested) {
+                while (!renderingStopRequested && featureIterator.hasNext()) {
                     rf.setFeature(featureIterator.next());
                     processFeature(rf, liteFeatureTypeStyle, handler);
                 }
             }
 
-            if (liteFeatureTypeStyle.composite != null) {
+            if (!renderingStopRequested && liteFeatureTypeStyle.composite != null) {
                 try {
                     requests.put(
                             new MergeLayersRequest(
@@ -2692,7 +2719,7 @@ public class StreamingRenderer implements GTRenderer {
             // one is there to make sure a single feature error does not ruin the rendering
             // (best effort) whilst an exception in hasNext() + ignoring catch results in
             // an infinite loop
-            while (iterator.hasNext() && !renderingStopRequested) {
+            while (!renderingStopRequested && iterator.hasNext()) {
                 rf.setFeature(iterator.next());
                 // draw the feature on the main graphics and on the eventual extra image buffers
                 for (LiteFeatureTypeStyle liteFeatureTypeStyle : lfts) {
@@ -2784,6 +2811,7 @@ public class StreamingRenderer implements GTRenderer {
     /** */
     void processFeature(
             RenderableFeature rf, LiteFeatureTypeStyle fts, ProjectionHandler projectionHandler) {
+        if (renderingStopRequested) return;
         try {
             // init the renderable feature for this fts
             rf.inMemoryGeneralization = fts.inMemoryGeneralization;
