@@ -534,6 +534,11 @@ public class StreamingRenderer implements GTRenderer {
             return;
         }
         renderingStopRequested = true;
+        // give feature readers a chance to abort quickly by checking
+        // Thread.currentThread().isInterrupted(). paint() will clear the interrupted status
+        // before returning.
+        processingThread.interrupt();
+
         // un-block the queue in case it was filled with requests and the main
         // thread got blocked on it
         requests.clear();
@@ -956,6 +961,10 @@ public class StreamingRenderer implements GTRenderer {
                     }
                 }
             } finally {
+                // clear out the interrupted status on the processing thread, if any. This is the
+                // same than this.processingThread, only that this method queries and clears out the
+                // interrupted status
+                Thread.interrupted();
                 try {
                     if (!renderingStopRequested) {
                         requests.put(new EndRequest());
