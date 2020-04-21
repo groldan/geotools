@@ -2607,6 +2607,7 @@ public class StreamingRenderer implements GTRenderer {
 
         // for each lite feature type style, scan the whole collection and draw
         for (LiteFeatureTypeStyle liteFeatureTypeStyle : lfts) {
+            if (renderingStopRequested) return;
             try (FeatureIterator<?> featureIterator =
                     ((FeatureCollection<?, ?>) features).features()) {
                 if (featureIterator == null) {
@@ -2643,13 +2644,13 @@ public class StreamingRenderer implements GTRenderer {
                 // one is there to make sure a single feature error does not ruin the rendering
                 // (best effort) whilst an exception in hasNext() + ignoring catch results in
                 // an infinite loop
-                while (featureIterator.hasNext() && !renderingStopRequested) {
+                while (!renderingStopRequested && featureIterator.hasNext()) {
                     rf.setFeature(featureIterator.next());
                     processFeature(rf, liteFeatureTypeStyle, handler);
                 }
             }
 
-            if (liteFeatureTypeStyle.composite != null) {
+            if (!renderingStopRequested && liteFeatureTypeStyle.composite != null) {
                 try {
                     requests.put(
                             new MergeLayersRequest(
@@ -2784,6 +2785,7 @@ public class StreamingRenderer implements GTRenderer {
     /** */
     void processFeature(
             RenderableFeature rf, LiteFeatureTypeStyle fts, ProjectionHandler projectionHandler) {
+        if (renderingStopRequested) return;
         try {
             // init the renderable feature for this fts
             rf.inMemoryGeneralization = fts.inMemoryGeneralization;
