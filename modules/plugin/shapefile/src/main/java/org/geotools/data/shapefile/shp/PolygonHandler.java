@@ -17,6 +17,7 @@ import java.nio.ByteBuffer;
 import java.nio.DoubleBuffer;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Objects;
 import java.util.function.BooleanSupplier;
@@ -30,6 +31,7 @@ import org.locationtech.jts.geom.Envelope;
 import org.locationtech.jts.geom.Geometry;
 import org.locationtech.jts.geom.GeometryFactory;
 import org.locationtech.jts.geom.LinearRing;
+import org.locationtech.jts.geom.Location;
 import org.locationtech.jts.geom.MultiPolygon;
 import org.locationtech.jts.geom.Polygon;
 import org.locationtech.jts.index.SpatialIndex;
@@ -74,20 +76,16 @@ public class PolygonHandler implements ShapeHandler {
     }
 
     // returns true if testPoint is a point in the pointList list.
-    boolean pointInList(Coordinate testPoint, Coordinate[] pointList) {
-        Coordinate p;
+    boolean pointInList(Coordinate testPoint, CoordinateSequence pointList) {
+        Coordinate p = new Coordinate();
 
-        for (int t = pointList.length - 1; t >= 0; t--) {
-            p = pointList[t];
+        for (int t = pointList.size() - 1; t >= 0; t--) {
+            pointList.getCoordinate(t, p);
 
-            // nan test; x!=x iff x is nan
-            if ((testPoint.x == p.x)
-                    && (testPoint.y == p.y)
-                    && ((testPoint.getZ() == p.getZ()) || Double.isNaN(testPoint.getZ()))) {
+            if (testPoint.equals3D(p)) {
                 return true;
             }
         }
-
         return false;
     }
 
@@ -107,8 +105,7 @@ public class PolygonHandler implements ShapeHandler {
         int nrings = 0;
 
         for (int t = 0; t < multi.getNumGeometries(); t++) {
-            Polygon p;
-            p = (Polygon) multi.getGeometryN(t);
+            Polygon p = (Polygon) multi.getGeometryN(t);
             nrings = nrings + 1 + p.getNumInteriorRing();
         }
 
@@ -149,16 +146,13 @@ public class PolygonHandler implements ShapeHandler {
         System.err.printf(
                 "%n-------%nreading polygon with %,d parts and %,d coords%n", numParts, numPoints);
         Stopwatch swtotal = new Stopwatch();
+        Stopwatch sw = new Stopwatch();
 
-        STRtree shellsIndex = new STRtree(2 + numParts); // Node capacity must be > 1
+        SpatialIndex shellsIndex = new STRtree(2 + numParts); // Node capacity must be > 1
         List<LinearRing> shells = new ReferenceCheckingArrayList<>();
         List<LinearRing> holes = new ArrayList<>();
 
-        Stopwatch sw = new Stopwatch();
         CoordinateSequence coords = readCoordinates(buffer, numPoints);
-        System.err.printf("%,d coords read in %s %n", coords.size(), sw.getTimeString());
-        sw.reset();
-
         int offset = 0;
         int start;
         int finish;
@@ -351,6 +345,7 @@ public class PolygonHandler implements ShapeHandler {
     }
 
     /** <b>Package private for testing</b> */
+    @SuppressWarnings("unchecked")
     List<List<LinearRing>> assignHolesToShells(
             final SpatialIndex shellsIndex,
             final List<LinearRing> shells,
@@ -359,48 +354,42 @@ public class PolygonHandler implements ShapeHandler {
         List<List<LinearRing>> holesForShells =
                 new ArrayList<>(Collections.nCopies(shells.size(), Collections.emptyList()));
 
+        final Comparator<LinearRing> smallestFirstRingComparator =
+                (r1, r2) -> {
+                    Envelope e1 = r1.getEnvelopeInternal();
+                    Envelope e2 = r2.getEnvelopeInternal();
+                    if (e1.contains(e2)) {
+                        return 1;
+                    }
+                    if (!e1.intersects(e2)) {
+                        return 0;
+                    }
+                    return -1;
+                };
+
         // find homes
-        for (int i = 0; i < holes.size(); i++) {
-            if (abort()) {
-                return null;
-            }
-            LinearRing testHole = (LinearRing) holes.get(i);
-            @SuppressWarnings("unchecked")
-            List<LinearRing> intersectingShells = shellsIndex.query(testHole.getEnvelopeInternal());
+        Coordinate holeTestPt = new Coordinate();
+        for (int i = 0; i < holes.size() && !abort(); i++) {
+            LinearRing testHole = holes.get(i);
+            Envelope holeEnv = testHole.getEnvelopeInternal();
+            testHole.getCoordinateSequence().getCoordinate(0, holeTestPt);
+            List<LinearRing> closestShells = shellsIndex.query(holeEnv);
+            Collections.sort(closestShells, smallestFirstRingComparator);
 
             LinearRing minShell = null;
-            int minShellIndex = -1;
-            Envelope minEnv = null;
-            Envelope testEnv = testHole.getEnvelopeInternal();
-            Coordinate testPt = testHole.getCoordinateN(0);
-
-            for (int j = 0; j < intersectingShells.size(); j++) {
-                if (abort()) {
-                    return null;
-                }
-                final LinearRing tryShell = intersectingShells.get(j);
-
-                Envelope tryEnv = tryShell.getEnvelopeInternal();
-                if (minShell != null) {
-                    minEnv = minShell.getEnvelopeInternal();
-                }
-
-                boolean isContained = false;
-                Coordinate[] coordList = tryShell.getCoordinates();
-
-                if (tryEnv.contains(testEnv)
-                        && (RayCrossingCounter.locatePointInRing(testPt, coordList) != 2
-                                || (pointInList(testPt, coordList)))) {
-                    isContained = true;
-                }
+            Envelope minShellEnv = null;
+            for (int j = 0; j < closestShells.size() && !abort(); j++) {
+                final LinearRing tryShell = closestShells.get(j);
+                Envelope shellEnv = tryShell.getEnvelopeInternal();
+                CoordinateSequence shellCoords = tryShell.getCoordinateSequence();
+                boolean isContained = isContained(shellEnv, holeEnv, holeTestPt, shellCoords);
 
                 // check if this new containing ring is smaller than the current
                 // minimum ring
-                if (isContained) {
-                    if ((minShell == null) || minEnv.contains(tryEnv)) {
-                        minShell = tryShell;
-                        minShellIndex = shells.indexOf(tryShell);
-                    }
+                if (isContained && (minShell == null || minShellEnv.contains(shellEnv))) {
+                    minShell = tryShell;
+                    minShellEnv = minShell.getEnvelopeInternal();
+                    break;
                 }
             }
 
@@ -409,16 +398,28 @@ public class PolygonHandler implements ShapeHandler {
                 shells.add(testHole);
                 holesForShells.add(Collections.emptyList());
             } else {
-                List<LinearRing> list = holesForShells.get(minShellIndex);
-                if (list.isEmpty()) {
-                    list = new ArrayList<>();
-                    holesForShells.set(minShellIndex, list);
+                int minShellIndex = shells.indexOf(minShell);
+                List<LinearRing> shellHoles = holesForShells.get(minShellIndex);
+                if (shellHoles.isEmpty()) {
+                    shellHoles = new ArrayList<>();
+                    holesForShells.set(minShellIndex, shellHoles);
                 }
-                list.add(testHole);
+                shellHoles.add(testHole);
             }
         }
 
         return holesForShells;
+    }
+
+    private final boolean isContained(
+            Envelope shellEnv,
+            Envelope holeEnv,
+            Coordinate holeTestPt,
+            CoordinateSequence shellCoords) {
+        return shellEnv.covers(holeEnv)
+                && (pointInList(holeTestPt, shellCoords)
+                        || RayCrossingCounter.locatePointInRing(holeTestPt, shellCoords)
+                                != Location.EXTERIOR);
     }
 
     private MultiPolygon createMulti(LinearRing single) {

@@ -26,6 +26,7 @@ import org.locationtech.jts.geom.Coordinate;
 import org.locationtech.jts.geom.GeometryFactory;
 import org.locationtech.jts.geom.LinearRing;
 import org.locationtech.jts.geom.PrecisionModel;
+import org.locationtech.jts.geom.impl.CoordinateArraySequence;
 import org.locationtech.jts.index.SpatialIndex;
 import org.locationtech.jts.index.strtree.STRtree;
 
@@ -44,9 +45,9 @@ public class PolygonHandler2Test extends org.geotools.data.shapefile.TestCaseSup
 
         PolygonHandler handler = new PolygonHandler(new GeometryFactory());
         assertTrue(handler.getShapeType() == ShapeType.POLYGON);
-
+        CoordinateArraySequence cs = new CoordinateArraySequence(c);
         for (int i = 0, ii = c.length; i < ii; i++) {
-            assertTrue(handler.pointInList(c[i], c));
+            assertTrue(handler.pointInList(c[i], cs));
         }
     }
 
