@@ -32,6 +32,7 @@ import org.locationtech.jts.geom.MultiPolygon;
 import org.locationtech.jts.geom.Polygon;
 import org.locationtech.jts.index.SpatialIndex;
 import org.locationtech.jts.index.strtree.STRtree;
+import org.locationtech.jts.util.Stopwatch;
 
 /**
  * Wrapper for a Shapefile polygon.
@@ -136,10 +137,18 @@ public class PolygonHandler implements ShapeHandler {
             partOffsets[i] = buffer.getInt();
         }
 
+        System.err.printf(
+                "%n-------%nreading polygon with %,d parts and %,d coords%n", numParts, numPoints);
+        Stopwatch swtotal = new Stopwatch();
+
         STRtree shellsIndex = new STRtree(2 + numParts); // Node capacity must be > 1
         List<LinearRing> shells = new ReferenceCheckingArrayList<>();
         List<LinearRing> holes = new ArrayList<>();
+
+        Stopwatch sw = new Stopwatch();
         CoordinateSequence coords = readCoordinates(buffer, numPoints);
+        System.err.printf("%,d coords read in %s %n", coords.size(), sw.getTimeString());
+        sw.reset();
 
         int offset = 0;
         int start;
@@ -250,6 +259,11 @@ public class PolygonHandler implements ShapeHandler {
             }
         }
 
+        System.err.printf(
+                "LinearRings created in %s, shells: %,d, holes: %,d %n",
+                sw.getTimeString(), shells.size(), holes.size());
+        sw.reset();
+
         // quick optimization: if there's only one shell no need to check
         // for holes inclusion
         if (shells.size() == 1) {
@@ -264,9 +278,12 @@ public class PolygonHandler implements ShapeHandler {
             // build an association between shells and holes
             final List<List<LinearRing>> holesForShells =
                     assignHolesToShells(shellsIndex, shells, holes);
+            System.err.printf("Holes assigned to shells in %s %n", sw.getTimeString());
+            sw.reset();
 
             Geometry g = buildGeometries(shells, holes, holesForShells);
-
+            System.err.printf("Geometry built in %s %n", sw.getTimeString());
+            System.err.printf("Total time: %s %n", swtotal.getTimeString());
             return g;
         }
     }
