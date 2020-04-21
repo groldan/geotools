@@ -425,6 +425,7 @@ public class StreamingRenderer implements GTRenderer {
     private ExecutorService threadPool;
 
     private PainterThread painterThread;
+    private Thread processingThread;
 
     private static int MAX_PIXELS_DENSIFY =
             Integer.valueOf(System.getProperty("ADVANCED_PROJECTION_DENSIFY_MAX_PIXELS", "5"));
@@ -524,6 +525,9 @@ public class StreamingRenderer implements GTRenderer {
      */
     public void stopRendering() {
         renderingStopRequested = true;
+        // give feature readers a chance to abort quickly by checking
+        // Thread.currentThread().isInterrupted().
+        processingThread.interrupt();
         // un-block the queue in case it was filled with requests and the main
         // thread got blocked on it
         requests.clear();
@@ -811,6 +815,7 @@ public class StreamingRenderer implements GTRenderer {
         // Setup the secondary painting thread
         requests = getRequestsQueue();
         painterThread = new PainterThread(requests);
+        processingThread = Thread.currentThread();
         ExecutorService localThreadPool = threadPool;
         boolean localPool = false;
         if (localThreadPool == null) {
@@ -935,6 +940,8 @@ public class StreamingRenderer implements GTRenderer {
                     }
                 }
             } finally {
+                // clear out the interrupted status on the processing thread, if any
+                Thread.interrupted();
                 try {
                     if (!renderingStopRequested) {
                         requests.put(new EndRequest());
@@ -2693,7 +2700,7 @@ public class StreamingRenderer implements GTRenderer {
             // one is there to make sure a single feature error does not ruin the rendering
             // (best effort) whilst an exception in hasNext() + ignoring catch results in
             // an infinite loop
-            while (iterator.hasNext() && !renderingStopRequested) {
+            while (!renderingStopRequested && iterator.hasNext()) {
                 rf.setFeature(iterator.next());
                 // draw the feature on the main graphics and on the eventual extra image buffers
                 for (LiteFeatureTypeStyle liteFeatureTypeStyle : lfts) {
