@@ -843,6 +843,9 @@ public class Hints extends RenderingHints {
     public static final Hints.Key ASSOCIATION_PROPERTY =
             new Key("org.opengis.filter.expression.PropertyName");
 
+    /** Timeout in seconds for a feature query */
+    public static final Hints.Key QUERY_TIMEOUT_SECONDS = new Key(Integer.class);
+
     ////////////////////////////////////////////////////////////////////////
     ////////                                                        ////////
     ////////                         Caches                         ////////

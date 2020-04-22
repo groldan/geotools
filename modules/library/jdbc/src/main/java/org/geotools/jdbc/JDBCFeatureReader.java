@@ -137,7 +137,6 @@ public class JDBCFeatureReader implements FeatureReader<SimpleFeatureType, Simpl
         this.cx = cx;
         st = cx.createStatement(ResultSet.TYPE_FORWARD_ONLY, ResultSet.CONCUR_READ_ONLY);
         st.setFetchSize(featureSource.getDataStore().getFetchSize());
-
         ((BasicSQLDialect) featureSource.getDataStore().getSQLDialect())
                 .onSelect(st, cx, featureType);
         runQuery(() -> st.executeQuery(sql), st);
@@ -243,12 +242,13 @@ public class JDBCFeatureReader implements FeatureReader<SimpleFeatureType, Simpl
 
     @FunctionalInterface
     interface QueryRunner {
-        ResultSet run() throws Exception;
+        ResultSet run() throws SQLException;
     }
 
     void runQuery(QueryRunner runner, Statement st) throws SQLException {
         callback.beforeQuery(st);
         try {
+            featureSource.getDataStore().applyQueryTimeout(st, query.getHints());
             rs = runner.run();
             callback.afterQuery(st);
         } catch (Exception e1) {
@@ -259,6 +259,9 @@ public class JDBCFeatureReader implements FeatureReader<SimpleFeatureType, Simpl
                 close();
             } catch (IOException e2) {
                 LOGGER.log(Level.FINE, "Failed to close the reader, moving on", e2);
+            }
+            if (e1 instanceof SQLException) {
+                throw (SQLException) e1;
             }
             throw new SQLException(e1);
         }

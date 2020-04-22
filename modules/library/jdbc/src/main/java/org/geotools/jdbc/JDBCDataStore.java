@@ -3599,6 +3599,16 @@ public final class JDBCDataStore extends ContentDataStore implements GmlObjectSt
         return ps;
     }
 
+    protected void applyQueryTimeout(Statement statement, Hints hints) throws SQLException {
+        if (hints != null && hints.containsKey(Hints.QUERY_TIMEOUT_SECONDS)) {
+            Integer timeout = (Integer) hints.get(Hints.QUERY_TIMEOUT_SECONDS);
+            if (timeout != null) {
+                int seconds = timeout.intValue();
+                statement.setQueryTimeout(seconds);
+            }
+        }
+    }
+
     /**
      * Helper method for setting the values of the WHERE class of a prepared statement from a list
      * of PreparedFilterToSQL.

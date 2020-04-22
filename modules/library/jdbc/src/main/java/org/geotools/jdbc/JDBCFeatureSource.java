@@ -23,6 +23,7 @@ import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.ResultSetMetaData;
 import java.sql.SQLException;
+import java.sql.SQLTimeoutException;
 import java.sql.Statement;
 import java.sql.Types;
 import java.util.ArrayList;
@@ -37,6 +38,7 @@ import org.geotools.data.FilteringFeatureReader;
 import org.geotools.data.MaxFeatureReader;
 import org.geotools.data.Query;
 import org.geotools.data.QueryCapabilities;
+import org.geotools.data.QueryTimeoutException;
 import org.geotools.data.ReTypeFeatureReader;
 import org.geotools.data.Transaction;
 import org.geotools.data.store.ContentEntry;
@@ -620,8 +622,10 @@ public class JDBCFeatureSource extends ContentFeatureSource {
             // safely rethrow
             if (e instanceof Error) {
                 throw (Error) e;
+            } else if (e instanceof SQLTimeoutException) {
+                throw new QueryTimeoutException(e);
             } else {
-                throw (IOException) new IOException().initCause(e);
+                throw new IOException(e);
             }
         }
 
