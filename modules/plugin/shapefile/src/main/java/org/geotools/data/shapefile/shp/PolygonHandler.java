@@ -13,19 +13,20 @@
  */
 package org.geotools.data.shapefile.shp;
 
+import static org.geotools.data.shapefile.shp.ShapefileCoordinateSequence.readCoordinates;
+
 import java.nio.ByteBuffer;
-import java.nio.DoubleBuffer;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Objects;
 import java.util.function.BooleanSupplier;
 import java.util.logging.Logger;
-import org.geotools.geometry.jts.JTS;
 import org.geotools.geometry.jts.coordinatesequence.CoordinateSequences;
 import org.locationtech.jts.algorithm.RayCrossingCounter;
 import org.locationtech.jts.geom.Coordinate;
 import org.locationtech.jts.geom.CoordinateSequence;
+import org.locationtech.jts.geom.CoordinateSequenceFactory;
 import org.locationtech.jts.geom.Envelope;
 import org.locationtech.jts.geom.Geometry;
 import org.locationtech.jts.geom.GeometryFactory;
@@ -128,16 +129,12 @@ public class PolygonHandler implements ShapeHandler {
         if (type == ShapeType.NULL) {
             return createNull();
         }
-        // bounds
-        buffer.position(buffer.position() + 4 * 8);
+        // skip x/y bounds
+        buffer.position(buffer.position() + 4 * Double.BYTES);
 
-        int[] partOffsets;
-
-        int numParts = buffer.getInt();
-        int numPoints = buffer.getInt();
-        int dimensions = (shapeType == ShapeType.POLYGONZ) && !flatFeature ? 3 : 2;
-
-        partOffsets = new int[numParts];
+        final int numParts = buffer.getInt();
+        final int numPoints = buffer.getInt();
+        final int[] partOffsets = new int[numParts];
 
         for (int i = 0; i < numParts; i++) {
             partOffsets[i] = buffer.getInt();
@@ -152,108 +149,25 @@ public class PolygonHandler implements ShapeHandler {
         List<LinearRing> shells = new ReferenceCheckingArrayList<>();
         List<LinearRing> holes = new ArrayList<>();
 
-        CoordinateSequence coords = readCoordinates(buffer, numPoints);
-        int offset = 0;
-        int start;
-        int finish;
-        int length;
+        ShapefileCoordinateSequence coords = readCoordinates(buffer, numPoints, shapeType);
+        if (flatFeature) {
+            coords = coords.force2D();
+        }
 
+        final CoordinateSequenceFactory csFactory = geometryFactory.getCoordinateSequenceFactory();
         for (int part = 0; part < numParts; part++) {
             if (abort()) {
                 return null;
             }
-            start = partOffsets[part];
+            int from = partOffsets[part];
+            int to = part == numParts - 1 ? numPoints : partOffsets[part + 1];
 
-            if (part == (numParts - 1)) {
-                finish = numPoints;
-            } else {
-                finish = partOffsets[part + 1];
-            }
+            CoordinateSequence csRing = coords.copyAutoClosing(from, to, csFactory);
 
-            length = finish - start;
-            int close = 0; // '1' if the ring must be closed, '0' otherwise
-            if ((coords.getOrdinate(start, CoordinateSequence.X)
-                            != coords.getOrdinate(finish - 1, CoordinateSequence.X))
-                    || (coords.getOrdinate(start, CoordinateSequence.Y)
-                            != coords.getOrdinate(finish - 1, CoordinateSequence.Y))) {
-                close = 1;
-            }
-            if (dimensions == 3 && !coords.hasM()) {
-                if (coords.getOrdinate(start, CoordinateSequence.Z)
-                        != coords.getOrdinate(finish - 1, CoordinateSequence.Z)) {
-                    close = 1;
-                }
-            }
-
-            CoordinateSequence csRing;
-            if (coords.hasZ()) {
-                csRing =
-                        JTS.createCS(
-                                geometryFactory.getCoordinateSequenceFactory(),
-                                length + close,
-                                4,
-                                1);
-            } else if (coords.hasM()) {
-                csRing =
-                        JTS.createCS(
-                                geometryFactory.getCoordinateSequenceFactory(),
-                                length + close,
-                                3,
-                                1);
-            } else {
-                csRing =
-                        JTS.createCS(
-                                geometryFactory.getCoordinateSequenceFactory(), length + close, 2);
-            }
-
-            // double area = 0;
-            // int sx = offset;
-            for (int i = 0; i < length; i++) {
-                csRing.setOrdinate(
-                        i, CoordinateSequence.X, coords.getOrdinate(offset, CoordinateSequence.X));
-                csRing.setOrdinate(
-                        i, CoordinateSequence.Y, coords.getOrdinate(offset, CoordinateSequence.Y));
-                if (coords.hasZ()) {
-                    csRing.setOrdinate(
-                            i,
-                            CoordinateSequence.Z,
-                            coords.getOrdinate(offset, CoordinateSequence.Z));
-                }
-                if (coords.hasM()) {
-                    csRing.setOrdinate(
-                            i,
-                            CoordinateSequence.M,
-                            coords.getOrdinate(offset, CoordinateSequence.M));
-                }
-                offset++;
-            }
-            if (close == 1) {
-                csRing.setOrdinate(
-                        length,
-                        CoordinateSequence.X,
-                        coords.getOrdinate(start, CoordinateSequence.X));
-                csRing.setOrdinate(
-                        length,
-                        CoordinateSequence.Y,
-                        coords.getOrdinate(start, CoordinateSequence.Y));
-                if (coords.hasZ()) {
-                    csRing.setOrdinate(
-                            length,
-                            CoordinateSequence.Z,
-                            coords.getOrdinate(start, CoordinateSequence.Z));
-                }
-                if (coords.hasM()) {
-                    csRing.setOrdinate(
-                            length,
-                            CoordinateSequence.M,
-                            coords.getOrdinate(start, CoordinateSequence.M));
-                }
-            }
             // REVISIT: polygons with only 1 or 2 points are not polygons -
             // geometryFactory will bomb so we skip if we find one.
             if (csRing.size() == 0 || csRing.size() > 3) {
                 LinearRing ring = geometryFactory.createLinearRing(csRing);
-
                 if (CoordinateSequences.isCCW(csRing)) {
                     // counter-clockwise
                     holes.add(ring);
@@ -295,15 +209,6 @@ public class PolygonHandler implements ShapeHandler {
             System.err.printf("Total time: %s %n", swtotal.getTimeString());
             return g;
         }
-    }
-
-    /** */
-    private CoordinateSequence readCoordinates(final ByteBuffer buffer, final int numPoints) {
-        DoubleBuffer dbuffer = buffer.asDoubleBuffer();
-        boolean hasZ = shapeType == ShapeType.POLYGONZ;
-        boolean hasM = shapeType == ShapeType.POLYGONM || shapeType == ShapeType.POLYGONZ;
-        BufferCoordinateSequence seq = new BufferCoordinateSequence(dbuffer, numPoints, hasZ, hasM);
-        return seq;
     }
 
     /** */
@@ -349,6 +254,7 @@ public class PolygonHandler implements ShapeHandler {
         private Coordinate holeTestPt;
 
         LinearRing shell;
+        private Envelope shellEnv;
 
         public ShellFinder init(Envelope holeEnv, Coordinate holeTestPt) {
             this.holeEnv = holeEnv;
@@ -365,8 +271,10 @@ public class PolygonHandler implements ShapeHandler {
             if (isContained) {
                 if (this.shell == null) {
                     this.shell = tryShell;
-                } else if (this.shell.getEnvelopeInternal().contains(shellEnv)) {
+                    this.shellEnv = tryShell.getEnvelopeInternal();
+                } else if (this.shellEnv.contains(shellEnv)) {
                     this.shell = tryShell;
+                    this.shellEnv = shellEnv;
                 }
             }
         }

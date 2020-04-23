@@ -36,6 +36,8 @@ public class PointHandler implements ShapeHandler {
 
     final ShapeType shapeType;
     GeometryFactory geometryFactory;
+
+    @SuppressWarnings("unused")
     private BooleanSupplier abortProcessing = () -> false;
 
     public PointHandler(ShapeType type, GeometryFactory gf) throws ShapefileException {

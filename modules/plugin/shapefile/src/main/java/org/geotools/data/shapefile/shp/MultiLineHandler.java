@@ -13,14 +13,17 @@
  */
 package org.geotools.data.shapefile.shp;
 
+import static org.geotools.data.shapefile.shp.ShapefileCoordinateSequence.copy;
+import static org.geotools.data.shapefile.shp.ShapefileCoordinateSequence.readCoordinates;
+
 import java.nio.ByteBuffer;
-import java.nio.DoubleBuffer;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 import java.util.function.BooleanSupplier;
-import org.geotools.geometry.jts.JTS;
+import org.locationtech.jts.geom.Coordinate;
 import org.locationtech.jts.geom.CoordinateSequence;
+import org.locationtech.jts.geom.CoordinateSequenceFactory;
 import org.locationtech.jts.geom.Envelope;
 import org.locationtech.jts.geom.GeometryFactory;
 import org.locationtech.jts.geom.LineString;
@@ -118,148 +121,39 @@ public class MultiLineHandler implements ShapeHandler {
         if (type == ShapeType.NULL) {
             return createNull();
         }
-        int dimensions =
-                ((shapeType == ShapeType.ARCZ || shapeType == ShapeType.ARCM) && !flatGeometry)
-                        ? 3
-                        : 2;
-        // read bounding box (not needed)
-        buffer.position(buffer.position() + 4 * 8);
 
-        int numParts = buffer.getInt();
-        int numPoints = buffer.getInt(); // total number of points
+        // skip bounding box (not needed)
+        buffer.position(buffer.position() + 4 * Double.BYTES);
 
-        int[] partOffsets = new int[numParts];
-
-        // points = new Coordinate[numPoints];
+        final int numParts = buffer.getInt();
+        final int numPoints = buffer.getInt(); // total number of points
+        final int[] partOffsets = new int[numParts];
         for (int i = 0; i < numParts; i++) {
             partOffsets[i] = buffer.getInt();
         }
-        // read the first two coordinates and start building the coordinate
-        // sequences
-        CoordinateSequence[] lines = new CoordinateSequence[numParts];
-        int finish, start = 0;
-        int length = 0;
-        boolean clonePoint = false;
-        final DoubleBuffer doubleBuffer = buffer.asDoubleBuffer();
-        for (int part = 0; part < numParts; part++) {
-            start = partOffsets[part];
-
-            if (part == (numParts - 1)) {
-                finish = numPoints;
-            } else {
-                finish = partOffsets[part + 1];
-            }
-
-            length = finish - start;
-            int xyLength = length;
-            if (length == 1) {
-                length = 2;
-                clonePoint = true;
-            } else {
-                clonePoint = false;
-            }
-
-            CoordinateSequence cs;
-            int measure = flatGeometry ? 0 : 1;
-            if (shapeType == ShapeType.ARCM) {
-                cs =
-                        JTS.createCS(
-                                geometryFactory.getCoordinateSequenceFactory(),
-                                length,
-                                dimensions + measure,
-                                measure);
-            } else if (shapeType == ShapeType.ARCZ) {
-                cs =
-                        JTS.createCS(
-                                geometryFactory.getCoordinateSequenceFactory(),
-                                length,
-                                dimensions + measure,
-                                measure);
-            } else {
-                cs =
-                        JTS.createCS(
-                                geometryFactory.getCoordinateSequenceFactory(), length, dimensions);
-            }
-            double[] xy = new double[xyLength * 2];
-            doubleBuffer.get(xy);
-            for (int i = 0; i < xyLength; i++) {
-                cs.setOrdinate(i, CoordinateSequence.X, xy[i * 2]);
-                cs.setOrdinate(i, CoordinateSequence.Y, xy[i * 2 + 1]);
-            }
-
-            if (clonePoint) {
-                cs.setOrdinate(1, CoordinateSequence.X, cs.getOrdinate(0, CoordinateSequence.X));
-                cs.setOrdinate(1, CoordinateSequence.Y, cs.getOrdinate(0, CoordinateSequence.Y));
-            }
-
-            lines[part] = cs;
+        ShapefileCoordinateSequence coords = readCoordinates(buffer, numPoints, shapeType);
+        if (flatGeometry) {
+            coords = coords.force2D();
         }
 
-        // if we have another coordinate, read and add to the coordinate
-        // sequences
-        if (shapeType == ShapeType.ARCZ && !flatGeometry) {
-            // z min, max
-            // buffer.position(buffer.position() + 2 * 8);
-            doubleBuffer.position(doubleBuffer.position() + 2);
-            for (int part = 0; part < numParts; part++) {
-                start = partOffsets[part];
-
-                if (part == (numParts - 1)) {
-                    finish = numPoints;
-                } else {
-                    finish = partOffsets[part + 1];
-                }
-
-                length = finish - start;
-                if (length == 1) {
-                    length = 2;
-                    clonePoint = true;
-                } else {
-                    clonePoint = false;
-                }
-
-                double[] z = new double[length];
-                doubleBuffer.get(z);
-                for (int i = 0; i < length; i++) {
-                    lines[part].setOrdinate(i, CoordinateSequence.Z, z[i]);
-                }
-            }
-        }
-        if ((shapeType == ShapeType.ARCZ || shapeType == ShapeType.ARCM) && !flatGeometry) {
-            // M min, max
-            // buffer.position(buffer.position() + 2 * 8);
-            doubleBuffer.position(doubleBuffer.position() + 2);
-            for (int part = 0; part < numParts; part++) {
-                start = partOffsets[part];
-
-                if (part == (numParts - 1)) {
-                    finish = numPoints;
-                } else {
-                    finish = partOffsets[part + 1];
-                }
-
-                length = finish - start;
-                if (length == 1) {
-                    length = 2;
-                    clonePoint = true;
-                } else {
-                    clonePoint = false;
-                }
-
-                double[] m = new double[length];
-                doubleBuffer.get(m);
-                for (int i = 0; i < length; i++) {
-                    lines[part].setOrdinate(i, CoordinateSequence.M, m[i]);
-                }
-            }
-        }
-
-        // Prepare line strings and return the multilinestring
         LineString[] lineStrings = new LineString[numParts];
+        final CoordinateSequenceFactory csFac = geometryFactory.getCoordinateSequenceFactory();
         for (int part = 0; part < numParts; part++) {
-            lineStrings[part] = geometryFactory.createLineString(lines[part]);
+            if (abortProcessing.getAsBoolean()) {
+                return null;
+            }
+            int start = partOffsets[part];
+            int finish = (part == numParts - 1) ? numPoints : partOffsets[part + 1];
+            int length = finish - start;
+            CoordinateSequence cs = coords.copy(start, finish, csFac);
+            if (length == 1) {
+                Coordinate c = cs.getCoordinate(0);
+                cs = csFac.create(2, cs.getDimension(), cs.getMeasures());
+                copy(cs, c, 0);
+                copy(cs, c, 1);
+            }
+            lineStrings[part] = geometryFactory.createLineString(cs);
         }
-
         return geometryFactory.createMultiLineString(lineStrings);
     }
 
