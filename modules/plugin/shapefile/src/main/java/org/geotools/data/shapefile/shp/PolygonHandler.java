@@ -17,7 +17,6 @@ import java.nio.ByteBuffer;
 import java.nio.DoubleBuffer;
 import java.util.ArrayList;
 import java.util.Collections;
-import java.util.Comparator;
 import java.util.List;
 import java.util.Objects;
 import java.util.function.BooleanSupplier;
@@ -34,6 +33,7 @@ import org.locationtech.jts.geom.LinearRing;
 import org.locationtech.jts.geom.Location;
 import org.locationtech.jts.geom.MultiPolygon;
 import org.locationtech.jts.geom.Polygon;
+import org.locationtech.jts.index.ItemVisitor;
 import org.locationtech.jts.index.SpatialIndex;
 import org.locationtech.jts.index.strtree.STRtree;
 import org.locationtech.jts.util.Stopwatch;
@@ -344,8 +344,47 @@ public class PolygonHandler implements ShapeHandler {
         return g;
     }
 
+    private static class ShellFinder implements ItemVisitor {
+        private Envelope holeEnv;
+        private Coordinate holeTestPt;
+
+        LinearRing shell;
+
+        public ShellFinder init(Envelope holeEnv, Coordinate holeTestPt) {
+            this.holeEnv = holeEnv;
+            this.holeTestPt = holeTestPt;
+            this.shell = null;
+            return this;
+        }
+
+        public @Override void visitItem(Object item) {
+            LinearRing tryShell = (LinearRing) item;
+            Envelope shellEnv = tryShell.getEnvelopeInternal();
+            CoordinateSequence shellCoords = tryShell.getCoordinateSequence();
+            boolean isContained = isContained(shellEnv, shellCoords);
+            if (isContained) {
+                if (this.shell == null) {
+                    this.shell = tryShell;
+                } else if (this.shell.getEnvelopeInternal().contains(shellEnv)) {
+                    this.shell = tryShell;
+                }
+            }
+        }
+
+        private final boolean isContained(Envelope shellEnv, CoordinateSequence shellCoords) {
+            // REVISIT: RayCrossingCounter.locatePointInRing already returns BOUNDARY if the point
+            // matches a vertex in the coordinate sequence
+            return shellEnv.covers(holeEnv)
+                    && (
+                    /* pointInList(holeTestPt, shellCoords) || */ RayCrossingCounter
+                                    .locatePointInRing(holeTestPt, shellCoords)
+                            != Location.EXTERIOR);
+        }
+    }
+
+    private final ShellFinder shellFinder = new ShellFinder();
+
     /** <b>Package private for testing</b> */
-    @SuppressWarnings("unchecked")
     List<List<LinearRing>> assignHolesToShells(
             final SpatialIndex shellsIndex,
             final List<LinearRing> shells,
@@ -354,45 +393,15 @@ public class PolygonHandler implements ShapeHandler {
         List<List<LinearRing>> holesForShells =
                 new ArrayList<>(Collections.nCopies(shells.size(), Collections.emptyList()));
 
-        final Comparator<LinearRing> smallestFirstRingComparator =
-                (r1, r2) -> {
-                    Envelope e1 = r1.getEnvelopeInternal();
-                    Envelope e2 = r2.getEnvelopeInternal();
-                    if (e1.contains(e2)) {
-                        return 1;
-                    }
-                    if (!e1.intersects(e2)) {
-                        return 0;
-                    }
-                    return -1;
-                };
-
         // find homes
         Coordinate holeTestPt = new Coordinate();
         for (int i = 0; i < holes.size() && !abort(); i++) {
             LinearRing testHole = holes.get(i);
             Envelope holeEnv = testHole.getEnvelopeInternal();
             testHole.getCoordinateSequence().getCoordinate(0, holeTestPt);
-            List<LinearRing> closestShells = shellsIndex.query(holeEnv);
-            Collections.sort(closestShells, smallestFirstRingComparator);
 
-            LinearRing minShell = null;
-            Envelope minShellEnv = null;
-            for (int j = 0; j < closestShells.size() && !abort(); j++) {
-                final LinearRing tryShell = closestShells.get(j);
-                Envelope shellEnv = tryShell.getEnvelopeInternal();
-                CoordinateSequence shellCoords = tryShell.getCoordinateSequence();
-                boolean isContained = isContained(shellEnv, holeEnv, holeTestPt, shellCoords);
-
-                // check if this new containing ring is smaller than the current
-                // minimum ring
-                if (isContained && (minShell == null || minShellEnv.contains(shellEnv))) {
-                    minShell = tryShell;
-                    minShellEnv = minShell.getEnvelopeInternal();
-                    break;
-                }
-            }
-
+            shellsIndex.query(holeEnv, shellFinder.init(holeEnv, holeTestPt));
+            LinearRing minShell = shellFinder.shell;
             if (minShell == null) {
                 // now reverse this bad "hole" and turn it into a shell
                 shells.add(testHole);
@@ -409,17 +418,6 @@ public class PolygonHandler implements ShapeHandler {
         }
 
         return holesForShells;
-    }
-
-    private final boolean isContained(
-            Envelope shellEnv,
-            Envelope holeEnv,
-            Coordinate holeTestPt,
-            CoordinateSequence shellCoords) {
-        return shellEnv.covers(holeEnv)
-                && (pointInList(holeTestPt, shellCoords)
-                        || RayCrossingCounter.locatePointInRing(holeTestPt, shellCoords)
-                                != Location.EXTERIOR);
     }
 
     private MultiPolygon createMulti(LinearRing single) {
