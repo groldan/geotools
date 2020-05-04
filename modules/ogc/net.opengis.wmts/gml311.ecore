@@ -19003,7 +19003,7 @@
     <eAnnotations source="http:///org/eclipse/emf/ecore/util/ExtendedMetaData">
       <details key="name" value="SignType"/>
     </eAnnotations>
-    <eLiterals name="_" literal="-"/>
+    <eLiterals name="_0" literal="-"/>
     <eLiterals name="_1" value="1" literal="+"/>
   </eClassifiers>
   <eClassifiers xsi:type="ecore:EDataType" name="SignTypeObject" instanceClassName="org.eclipse.emf.common.util.Enumerator">
