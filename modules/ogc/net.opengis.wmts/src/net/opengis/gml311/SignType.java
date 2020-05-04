@@ -31,7 +31,7 @@ public enum SignType implements Enumerator {
      * @generated
      * @ordered
      */
-    _(0, "_", "-"),
+    _0(0, "_0", "-"),
 
     /**
      * The '<em><b>1</b></em>' literal object.
@@ -51,12 +51,12 @@ public enum SignType implements Enumerator {
      * there really should be more of a description here...
      * </p>
      * <!-- end-user-doc -->
-     * @see #_
+     * @see #_0
      * @model literal="-"
      * @generated
      * @ordered
      */
-    public static final int __VALUE = 0;
+    public static final int _0_VALUE = 0;
 
     /**
      * The '<em><b>1</b></em>' literal value.
@@ -81,7 +81,7 @@ public enum SignType implements Enumerator {
      */
     private static final SignType[] VALUES_ARRAY =
         new SignType[] {
-            _,
+            _0,
             _1,
         };
 
@@ -139,7 +139,7 @@ public enum SignType implements Enumerator {
      */
     public static SignType get(int value) {
         switch (value) {
-            case __VALUE: return _;
+            case _0_VALUE: return _0;
             case _1_VALUE: return _1;
         }
         return null;

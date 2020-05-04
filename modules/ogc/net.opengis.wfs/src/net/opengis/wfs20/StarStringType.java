@@ -30,7 +30,7 @@ public enum StarStringType implements Enumerator {
    * @generated
    * @ordered
    */
-    _(0, "_", "*");
+    VALUE(0, "VALUE", "*");
 
     /**
    * The '<em><b></b></em>' literal value.
@@ -40,7 +40,7 @@ public enum StarStringType implements Enumerator {
      * there really should be more of a description here...
      * </p>
      * <!-- end-user-doc -->
-   * @see #_
+   * @see #VALUE
    * @model literal="*"
    * @generated
    * @ordered
@@ -55,7 +55,7 @@ public enum StarStringType implements Enumerator {
    */
     private static final StarStringType[] VALUES_ARRAY =
         new StarStringType[] {
-      _,
+      VALUE,
     };
 
     /**
@@ -112,7 +112,7 @@ public enum StarStringType implements Enumerator {
    */
     public static StarStringType get(int value) {
     switch (value) {
-      case __VALUE: return _;
+      case __VALUE: return VALUE;
     }
     return null;
   }

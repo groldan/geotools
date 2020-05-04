@@ -2218,7 +2218,7 @@
     <eAnnotations source="http:///org/eclipse/emf/ecore/util/ExtendedMetaData">
       <details key="name" value="StarStringType"/>
     </eAnnotations>
-    <eLiterals name="_" literal="*"/>
+    <eLiterals name="VALUE" literal="*"/>
   </eClassifiers>
   <eClassifiers xsi:type="ecore:EEnum" name="StateValueTypeMember0">
     <eAnnotations source="http:///org/eclipse/emf/ecore/util/ExtendedMetaData">
