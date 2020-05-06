@@ -999,7 +999,7 @@ public class NetCDFUtilities {
         // TODO: Improve me:
         // Handle timeZone
         pattern += appendZ ? "'Z'" : "";
-        final DateFormat format = new SimpleDateFormat(pattern, Locale.CANADA);
+        final DateFormat format = new SimpleDateFormat(pattern, Locale.ENGLISH);
         format.setTimeZone(TimeZone.getTimeZone("UTC"));
         return format;
     }
