@@ -17,14 +17,13 @@
 package org.geotools.coverage.io.netcdf;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertSame;
 import static org.junit.Assert.assertTrue;
 
 import java.io.File;
 import java.io.IOException;
-import java.lang.reflect.Field;
-import java.lang.reflect.Modifier;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
@@ -46,6 +45,7 @@ import org.geotools.referencing.operation.projection.TransverseMercator;
 import org.geotools.test.TestData;
 import org.junit.After;
 import org.junit.AfterClass;
+import org.junit.Before;
 import org.junit.BeforeClass;
 import org.junit.Rule;
 import org.junit.Test;
@@ -80,20 +80,6 @@ public class NetCDFCRSTest {
 
     private static CoordinateReferenceSystem UTM32611;
 
-    private void setFinalStaticField(String fieldName, boolean value)
-            throws NoSuchFieldException, SecurityException, IllegalArgumentException,
-                    IllegalAccessException {
-        // Playing with System.Properties and Static boolean fields can raises issues
-        // when running Junit tests via Maven, due to initialization orders.
-        // So let's change the fields via reflections for these tests
-        Field field = NetCDFCRSUtilities.class.getDeclaredField(fieldName);
-        field.setAccessible(true);
-        Field modifiersField = Field.class.getDeclaredField("modifiers");
-        modifiersField.setAccessible(true);
-        modifiersField.setInt(field, field.getModifiers() & ~Modifier.FINAL);
-        field.set(null, value);
-    }
-
     /** Sets up the custom definitions */
     @BeforeClass
     public static void setUpClass() throws Exception {
@@ -109,6 +95,13 @@ public class NetCDFCRSTest {
     @AfterClass
     public static void cleanUp() {
         System.clearProperty(NetCDFCRSAuthorityFactory.SYSTEM_DEFAULT_USER_PROJ_FILE);
+        System.clearProperty(NetCDFCRSUtilities.CONVERT_AXIS_KM_KEY);
+    }
+
+    @Before
+    public void before() {
+        // clear property in case another test changed the default value
+        System.clearProperty(NetCDFCRSUtilities.CONVERT_AXIS_KM_KEY);
     }
 
     @Test
@@ -472,7 +465,6 @@ public class NetCDFCRSTest {
 
     @Test
     public void testPreserveKM() throws Exception {
-        setFinalStaticField("CONVERT_AXIS_KM", false);
         String fileName = "samplekm.nc";
         File nc1 = TestData.file(this, fileName);
         File converted = tempFolder.newFolder("converted");
@@ -491,7 +483,10 @@ public class NetCDFCRSTest {
 
     @Test
     public void testAutoConversionKmToM() throws Exception {
-        setFinalStaticField("CONVERT_AXIS_KM", true);
+        assertFalse(NetCDFCRSUtilities.isConvertAxisKm());
+        System.setProperty(NetCDFCRSUtilities.CONVERT_AXIS_KM_KEY, "true");
+        assertTrue(NetCDFCRSUtilities.isConvertAxisKm());
+
         String fileName = "samplekm.nc";
         File nc1 = TestData.file(this, fileName);
         File converted = tempFolder.newFolder("converted");
