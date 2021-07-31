@@ -347,7 +347,7 @@ public class ThreadedAuthorityFactory extends AbstractAuthorityFactory implement
 
     /** Returns an arbitrary object from a code. */
     @Override
-    public synchronized IdentifiedObject createObject(final String code) throws FactoryException {
+    public IdentifiedObject createObject(final String code) throws FactoryException {
         final IdentifiedObject object;
         final String key = trimAuthority(code);
         final Object cached = objectCache.get(key);
@@ -362,7 +362,7 @@ public class ThreadedAuthorityFactory extends AbstractAuthorityFactory implement
 
     /** Returns an arbitrary datum from a code. */
     @Override
-    public synchronized Datum createDatum(final String code) throws FactoryException {
+    public Datum createDatum(final String code) throws FactoryException {
         final Datum datum;
         final String key = trimAuthority(code);
         final Object cached = objectCache.get(key);
@@ -377,8 +377,7 @@ public class ThreadedAuthorityFactory extends AbstractAuthorityFactory implement
 
     /** Returns an engineering datum from a code. */
     @Override
-    public synchronized EngineeringDatum createEngineeringDatum(final String code)
-            throws FactoryException {
+    public EngineeringDatum createEngineeringDatum(final String code) throws FactoryException {
         final EngineeringDatum datum;
         final String key = trimAuthority(code);
         final Object cached = objectCache.get(key);
@@ -393,7 +392,7 @@ public class ThreadedAuthorityFactory extends AbstractAuthorityFactory implement
 
     /** Returns an image datum from a code. */
     @Override
-    public synchronized ImageDatum createImageDatum(final String code) throws FactoryException {
+    public ImageDatum createImageDatum(final String code) throws FactoryException {
         final ImageDatum datum;
         final String key = trimAuthority(code);
         final Object cached = objectCache.get(key);
@@ -408,8 +407,7 @@ public class ThreadedAuthorityFactory extends AbstractAuthorityFactory implement
 
     /** Returns a vertical datum from a code. */
     @Override
-    public synchronized VerticalDatum createVerticalDatum(final String code)
-            throws FactoryException {
+    public VerticalDatum createVerticalDatum(final String code) throws FactoryException {
         final VerticalDatum datum;
         final String key = trimAuthority(code);
         final Object cached = objectCache.get(key);
@@ -424,8 +422,7 @@ public class ThreadedAuthorityFactory extends AbstractAuthorityFactory implement
 
     /** Returns a temporal datum from a code. */
     @Override
-    public synchronized TemporalDatum createTemporalDatum(final String code)
-            throws FactoryException {
+    public TemporalDatum createTemporalDatum(final String code) throws FactoryException {
         final TemporalDatum datum;
         final String key = trimAuthority(code);
         final Object cached = objectCache.get(key);
@@ -440,8 +437,7 @@ public class ThreadedAuthorityFactory extends AbstractAuthorityFactory implement
 
     /** Returns a geodetic datum from a code. */
     @Override
-    public synchronized GeodeticDatum createGeodeticDatum(final String code)
-            throws FactoryException {
+    public GeodeticDatum createGeodeticDatum(final String code) throws FactoryException {
         final GeodeticDatum datum;
         final String key = trimAuthority(code);
         final Object cached = objectCache.get(key);
@@ -456,7 +452,7 @@ public class ThreadedAuthorityFactory extends AbstractAuthorityFactory implement
 
     /** Returns an ellipsoid from a code. */
     @Override
-    public synchronized Ellipsoid createEllipsoid(final String code) throws FactoryException {
+    public Ellipsoid createEllipsoid(final String code) throws FactoryException {
         final Ellipsoid ellipsoid;
         final String key = trimAuthority(code);
         final Object cached = objectCache.get(key);
@@ -471,8 +467,7 @@ public class ThreadedAuthorityFactory extends AbstractAuthorityFactory implement
 
     /** Returns a prime meridian from a code. */
     @Override
-    public synchronized PrimeMeridian createPrimeMeridian(final String code)
-            throws FactoryException {
+    public PrimeMeridian createPrimeMeridian(final String code) throws FactoryException {
         final PrimeMeridian meridian;
         final String key = trimAuthority(code);
         final Object cached = objectCache.get(key);
@@ -487,7 +482,7 @@ public class ThreadedAuthorityFactory extends AbstractAuthorityFactory implement
 
     /** Returns an extent (usually an area of validity) from a code. */
     @Override
-    public synchronized Extent createExtent(final String code) throws FactoryException {
+    public Extent createExtent(final String code) throws FactoryException {
         final Extent extent;
         final String key = trimAuthority(code);
         final Object cached = objectCache.get(key);
@@ -502,8 +497,7 @@ public class ThreadedAuthorityFactory extends AbstractAuthorityFactory implement
 
     /** Returns an arbitrary coordinate system from a code. */
     @Override
-    public synchronized CoordinateSystem createCoordinateSystem(final String code)
-            throws FactoryException {
+    public CoordinateSystem createCoordinateSystem(final String code) throws FactoryException {
         final CoordinateSystem cs;
         final String key = trimAuthority(code);
         final Object cached = objectCache.get(key);
@@ -518,7 +512,7 @@ public class ThreadedAuthorityFactory extends AbstractAuthorityFactory implement
 
     /** Returns a cartesian coordinate system from a code. */
     @Override
-    public synchronized CartesianCS createCartesianCS(final String code) throws FactoryException {
+    public CartesianCS createCartesianCS(final String code) throws FactoryException {
         final CartesianCS cs;
         final String key = trimAuthority(code);
         final Object cached = objectCache.get(key);
@@ -533,7 +527,7 @@ public class ThreadedAuthorityFactory extends AbstractAuthorityFactory implement
 
     /** Returns a polar coordinate system from a code. */
     @Override
-    public synchronized PolarCS createPolarCS(final String code) throws FactoryException {
+    public PolarCS createPolarCS(final String code) throws FactoryException {
         final PolarCS cs;
         final String key = trimAuthority(code);
         final Object cached = objectCache.get(key);
@@ -548,8 +542,7 @@ public class ThreadedAuthorityFactory extends AbstractAuthorityFactory implement
 
     /** Returns a cylindrical coordinate system from a code. */
     @Override
-    public synchronized CylindricalCS createCylindricalCS(final String code)
-            throws FactoryException {
+    public CylindricalCS createCylindricalCS(final String code) throws FactoryException {
         final CylindricalCS cs;
         final String key = trimAuthority(code);
         final Object cached = objectCache.get(key);
@@ -564,7 +557,7 @@ public class ThreadedAuthorityFactory extends AbstractAuthorityFactory implement
 
     /** Returns a spherical coordinate system from a code. */
     @Override
-    public synchronized SphericalCS createSphericalCS(final String code) throws FactoryException {
+    public SphericalCS createSphericalCS(final String code) throws FactoryException {
         final SphericalCS cs;
         final String key = trimAuthority(code);
         final Object cached = objectCache.get(key);
@@ -579,8 +572,7 @@ public class ThreadedAuthorityFactory extends AbstractAuthorityFactory implement
 
     /** Returns an ellipsoidal coordinate system from a code. */
     @Override
-    public synchronized EllipsoidalCS createEllipsoidalCS(final String code)
-            throws FactoryException {
+    public EllipsoidalCS createEllipsoidalCS(final String code) throws FactoryException {
         final EllipsoidalCS cs;
         final String key = trimAuthority(code);
         final Object cached = objectCache.get(key);
@@ -595,7 +587,7 @@ public class ThreadedAuthorityFactory extends AbstractAuthorityFactory implement
 
     /** Returns a vertical coordinate system from a code. */
     @Override
-    public synchronized VerticalCS createVerticalCS(final String code) throws FactoryException {
+    public VerticalCS createVerticalCS(final String code) throws FactoryException {
         final VerticalCS cs;
         final String key = trimAuthority(code);
         final Object cached = objectCache.get(key);
@@ -610,7 +602,7 @@ public class ThreadedAuthorityFactory extends AbstractAuthorityFactory implement
 
     /** Returns a temporal coordinate system from a code. */
     @Override
-    public synchronized TimeCS createTimeCS(final String code) throws FactoryException {
+    public TimeCS createTimeCS(final String code) throws FactoryException {
         final TimeCS cs;
         final String key = trimAuthority(code);
         final Object cached = objectCache.get(key);
@@ -625,7 +617,7 @@ public class ThreadedAuthorityFactory extends AbstractAuthorityFactory implement
 
     /** Returns a coordinate system axis from a code. */
     @Override
-    public synchronized CoordinateSystemAxis createCoordinateSystemAxis(final String code)
+    public CoordinateSystemAxis createCoordinateSystemAxis(final String code)
             throws FactoryException {
         final CoordinateSystemAxis axis;
         final String key = trimAuthority(code);
@@ -641,7 +633,7 @@ public class ThreadedAuthorityFactory extends AbstractAuthorityFactory implement
 
     /** Returns an unit from a code. */
     @Override
-    public synchronized Unit<?> createUnit(final String code) throws FactoryException {
+    public Unit<?> createUnit(final String code) throws FactoryException {
         final Unit<?> unit;
         final String key = trimAuthority(code);
         final Object cached = objectCache.get(key);
@@ -656,7 +648,7 @@ public class ThreadedAuthorityFactory extends AbstractAuthorityFactory implement
 
     /** Returns an arbitrary coordinate reference system from a code. */
     @Override
-    public synchronized CoordinateReferenceSystem createCoordinateReferenceSystem(final String code)
+    public CoordinateReferenceSystem createCoordinateReferenceSystem(final String code)
             throws FactoryException {
         final CoordinateReferenceSystem crs;
         final String key = trimAuthority(code);
@@ -672,7 +664,7 @@ public class ThreadedAuthorityFactory extends AbstractAuthorityFactory implement
 
     /** Returns a 3D coordinate reference system from a code. */
     @Override
-    public synchronized CompoundCRS createCompoundCRS(final String code) throws FactoryException {
+    public CompoundCRS createCompoundCRS(final String code) throws FactoryException {
         final CompoundCRS crs;
         final String key = trimAuthority(code);
         final Object cached = objectCache.get(key);
@@ -687,7 +679,7 @@ public class ThreadedAuthorityFactory extends AbstractAuthorityFactory implement
 
     /** Returns a derived coordinate reference system from a code. */
     @Override
-    public synchronized DerivedCRS createDerivedCRS(final String code) throws FactoryException {
+    public DerivedCRS createDerivedCRS(final String code) throws FactoryException {
         final DerivedCRS crs;
         final String key = trimAuthority(code);
         final Object cached = objectCache.get(key);
@@ -702,8 +694,7 @@ public class ThreadedAuthorityFactory extends AbstractAuthorityFactory implement
 
     /** Returns an engineering coordinate reference system from a code. */
     @Override
-    public synchronized EngineeringCRS createEngineeringCRS(final String code)
-            throws FactoryException {
+    public EngineeringCRS createEngineeringCRS(final String code) throws FactoryException {
         final EngineeringCRS crs;
         final String key = trimAuthority(code);
         final Object cached = objectCache.get(key);
@@ -718,8 +709,7 @@ public class ThreadedAuthorityFactory extends AbstractAuthorityFactory implement
 
     /** Returns a geographic coordinate reference system from a code. */
     @Override
-    public synchronized GeographicCRS createGeographicCRS(final String code)
-            throws FactoryException {
+    public GeographicCRS createGeographicCRS(final String code) throws FactoryException {
         final GeographicCRS crs;
         final String key = trimAuthority(code);
         final Object cached = objectCache.get(key);
@@ -734,8 +724,7 @@ public class ThreadedAuthorityFactory extends AbstractAuthorityFactory implement
 
     /** Returns a geocentric coordinate reference system from a code. */
     @Override
-    public synchronized GeocentricCRS createGeocentricCRS(final String code)
-            throws FactoryException {
+    public GeocentricCRS createGeocentricCRS(final String code) throws FactoryException {
         final GeocentricCRS crs;
         final String key = trimAuthority(code);
         final Object cached = objectCache.get(key);
@@ -750,7 +739,7 @@ public class ThreadedAuthorityFactory extends AbstractAuthorityFactory implement
 
     /** Returns an image coordinate reference system from a code. */
     @Override
-    public synchronized ImageCRS createImageCRS(final String code) throws FactoryException {
+    public ImageCRS createImageCRS(final String code) throws FactoryException {
         final ImageCRS crs;
         final String key = trimAuthority(code);
         final Object cached = objectCache.get(key);
@@ -765,7 +754,7 @@ public class ThreadedAuthorityFactory extends AbstractAuthorityFactory implement
 
     /** Returns a projected coordinate reference system from a code. */
     @Override
-    public synchronized ProjectedCRS createProjectedCRS(final String code) throws FactoryException {
+    public ProjectedCRS createProjectedCRS(final String code) throws FactoryException {
         final ProjectedCRS crs;
         final String key = trimAuthority(code);
         final Object cached = objectCache.get(key);
@@ -780,7 +769,7 @@ public class ThreadedAuthorityFactory extends AbstractAuthorityFactory implement
 
     /** Returns a temporal coordinate reference system from a code. */
     @Override
-    public synchronized TemporalCRS createTemporalCRS(final String code) throws FactoryException {
+    public TemporalCRS createTemporalCRS(final String code) throws FactoryException {
         final TemporalCRS crs;
         final String key = trimAuthority(code);
         final Object cached = objectCache.get(key);
@@ -795,7 +784,7 @@ public class ThreadedAuthorityFactory extends AbstractAuthorityFactory implement
 
     /** Returns a vertical coordinate reference system from a code. */
     @Override
-    public synchronized VerticalCRS createVerticalCRS(final String code) throws FactoryException {
+    public VerticalCRS createVerticalCRS(final String code) throws FactoryException {
         final VerticalCRS crs;
         final String key = trimAuthority(code);
         final Object cached = objectCache.get(key);
@@ -810,7 +799,7 @@ public class ThreadedAuthorityFactory extends AbstractAuthorityFactory implement
 
     /** Returns a parameter descriptor from a code. */
     @Override
-    public synchronized ParameterDescriptor createParameterDescriptor(final String code)
+    public ParameterDescriptor createParameterDescriptor(final String code)
             throws FactoryException {
         final ParameterDescriptor parameter;
         final String key = trimAuthority(code);
@@ -826,8 +815,7 @@ public class ThreadedAuthorityFactory extends AbstractAuthorityFactory implement
 
     /** Returns an operation method from a code. */
     @Override
-    public synchronized OperationMethod createOperationMethod(final String code)
-            throws FactoryException {
+    public OperationMethod createOperationMethod(final String code) throws FactoryException {
         final OperationMethod method;
         final String key = trimAuthority(code);
         final Object cached = objectCache.get(key);
@@ -842,7 +830,7 @@ public class ThreadedAuthorityFactory extends AbstractAuthorityFactory implement
 
     /** Returns an operation from a single operation code. */
     @Override
-    public synchronized CoordinateOperation createCoordinateOperation(final String code)
+    public CoordinateOperation createCoordinateOperation(final String code)
             throws FactoryException {
         final CoordinateOperation operation;
         final String key = trimAuthority(code);
@@ -859,7 +847,7 @@ public class ThreadedAuthorityFactory extends AbstractAuthorityFactory implement
     /** Returns an operation from coordinate reference system codes. */
     @SuppressWarnings("unchecked")
     @Override
-    public synchronized Set<CoordinateOperation> createFromCoordinateReferenceSystemCodes(
+    public Set<CoordinateOperation> createFromCoordinateReferenceSystemCodes(
             final String sourceCode, final String targetCode) throws FactoryException {
         final Set<CoordinateOperation> operations;
         final CodePair key = new CodePair(trimAuthority(sourceCode), trimAuthority(targetCode));

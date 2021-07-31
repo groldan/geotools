@@ -21,6 +21,8 @@ import java.lang.ref.WeakReference;
 import java.util.Iterator;
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.concurrent.locks.ReadWriteLock;
+import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 /**
  * Caching implementation for ReferencingObjectCache. This instance is used when actual caching is
@@ -43,6 +45,8 @@ final class OldReferencingObjectCache {
      */
     private final LinkedHashMap<Object, Object> pool = new LinkedHashMap<>(32, 0.75f, true);
 
+    private final ReadWriteLock lock = new ReentrantReadWriteLock();
+
     /**
      * The maximum number of objects to keep by strong reference. If a greater amount of objects are
      * created, then the strong references for the oldest ones are replaced by weak references.
@@ -58,10 +62,10 @@ final class OldReferencingObjectCache {
     }
 
     /** Removes all entries from this map. */
-    public synchronized void clear() {
-        if (pool != null) {
-            pool.clear();
-        }
+    public void clear() {
+        lock.writeLock().lock();
+        pool.clear();
+        lock.writeLock().unlock();
     }
 
     /**
@@ -73,7 +77,9 @@ final class OldReferencingObjectCache {
      */
     public Object get(final Object key) {
         // assert Thread.holdsLock(factory);
+        lock.readLock().lock();
         Object object = pool.get(key);
+        lock.readLock().unlock();
         if (object instanceof Reference) {
             object = ((Reference) object).get();
         }
@@ -90,25 +96,29 @@ final class OldReferencingObjectCache {
      * @param object The referencing object to add in the pool.
      */
     public void put(final Object key, final Object object) {
-        // assert Thread.holdsLock(factory);
-        pool.put(key, object);
-        int toReplace = pool.size() - maxStrongReferences;
-        if (toReplace > 0) {
-            for (final Iterator<Map.Entry<Object, Object>> it = pool.entrySet().iterator();
-                    it.hasNext(); ) {
-                final Map.Entry<Object, Object> entry = it.next();
-                final Object value = entry.getValue();
-                if (value instanceof Reference) {
-                    if (((Reference) value).get() == null) {
-                        it.remove();
+        lock.writeLock().lock();
+        try {
+            pool.put(key, object);
+            int toReplace = pool.size() - maxStrongReferences;
+            if (toReplace > 0) {
+                for (final Iterator<Map.Entry<Object, Object>> it = pool.entrySet().iterator();
+                        it.hasNext(); ) {
+                    final Map.Entry<Object, Object> entry = it.next();
+                    final Object value = entry.getValue();
+                    if (value instanceof Reference) {
+                        if (((Reference) value).get() == null) {
+                            it.remove();
+                        }
+                        continue;
                     }
-                    continue;
-                }
-                entry.setValue(new WeakReference<>(value));
-                if (--toReplace == 0) {
-                    break;
+                    entry.setValue(new WeakReference<>(value));
+                    if (--toReplace == 0) {
+                        break;
+                    }
                 }
             }
+        } finally {
+            lock.writeLock().unlock();
         }
     }
 
