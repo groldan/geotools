@@ -44,6 +44,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.NoSuchElementException;
 import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.function.Supplier;
 import java.util.logging.Level;
 import java.util.logging.LogRecord;
 import javax.measure.MetricPrefix;
@@ -414,12 +416,10 @@ public abstract class DirectEpsgFactory extends DirectAuthorityFactory
      * A pool of prepared statements. Key are {@link String} object related to their originating
      * method name (for example "Ellipsoid" for {@link #createEllipsoid}, while values are {@link
      * PreparedStatement} objects.
-     *
-     * <p><strong>Note:</strong> It is okay to use {@link IdentityHashMap} instead of {@link
-     * HashMap} because the keys will always be the exact same object, namely the hard-coded
-     * argument given to calls to {@link #prepareStatement} in this class.
      */
-    private final Map<String, PreparedStatement> statements = new IdentityHashMap<>();
+    private final Map<String, PreparedStatement> statements = new ConcurrentHashMap<>();
+
+    private final Map<String, String> rawStatements = new ConcurrentHashMap<>();
 
     /**
      * The set of authority codes for different types. This map is used by the {@link
@@ -543,8 +543,9 @@ public abstract class DirectEpsgFactory extends DirectAuthorityFactory
                                 adaptSQL(
                                         "SELECT VERSION_NUMBER, VERSION_DATE FROM [Version History]"
                                                 + " ORDER BY VERSION_DATE DESC, VERSION_NUMBER DESC");
-                        final DatabaseMetaData metadata = getConnection().getMetaData();
-                        try (Statement statement = getConnection().createStatement();
+                        final Connection connection = getConnection();
+                        final DatabaseMetaData metadata = connection.getMetaData();
+                        try (Statement statement = connection.createStatement();
                                 ResultSet result = statement.executeQuery(query)) {
                             if (result.next()) {
                                 final String version = result.getString(1);
@@ -770,6 +771,12 @@ public abstract class DirectEpsgFactory extends DirectAuthorityFactory
         return new SimpleInternationalString(identifier.getCode());
     }
 
+    private PreparedStatement prepareStatement(
+            final String key, final Supplier<String> queryBuilder) throws SQLException {
+        String sql = rawStatements.computeIfAbsent(key, k -> queryBuilder.get());
+        return prepareStatement(key, sql);
+    }
+
     /**
      * Returns a prepared statement for the specified name. Most {@link PreparedStatement} creations
      * are performed through this method, except {@link #getNumericalIdentifier} and {@link
@@ -786,22 +793,40 @@ public abstract class DirectEpsgFactory extends DirectAuthorityFactory
     private PreparedStatement prepareStatement(final String key, final String sql)
             throws SQLException {
         assert Thread.holdsLock(this);
-        PreparedStatement stmt = statements.get(key);
-        Connection conn = null;
-        if (stmt != null) {
-            try {
-                conn = stmt.getConnection();
-            } catch (SQLException sqle) {
-                // mark this invalid
-                stmt = null;
+
+        try {
+            PreparedStatement ps =
+                    statements.compute(
+                            key,
+                            (k, stmt) -> {
+                                PreparedStatement val = null;
+                                try {
+                                    if (stmt != null) {
+                                        try {
+                                            Connection conn = stmt.getConnection();
+                                            if (isConnectionValid(conn)) {
+                                                val = stmt;
+                                            }
+                                        } catch (SQLException sqle) {
+                                            val = null;
+                                        }
+                                    }
+                                    if (null == val) {
+                                        val = getConnection().prepareStatement(adaptSQL(sql));
+                                    }
+                                    return val;
+                                } catch (SQLException e) {
+                                    throw new IllegalStateException(e);
+                                }
+                            });
+            return ps;
+        } catch (IllegalStateException e) {
+            Throwable cause = e.getCause();
+            if (cause instanceof SQLException) {
+                throw (SQLException) cause;
             }
+            throw e;
         }
-        if (conn != null && !isConnectionValid(conn)) stmt = null;
-        if (stmt == null) {
-            stmt = getConnection().prepareStatement(adaptSQL(sql));
-            statements.put(key, stmt);
-        }
-        return stmt;
     }
 
     /**
@@ -942,7 +967,7 @@ public abstract class DirectEpsgFactory extends DirectAuthorityFactory
             if (statement == null) {
                 final String query =
                         "SELECT " + codeColumn + " FROM " + table + " WHERE " + nameColumn + " = ?";
-                statement = connection.prepareStatement(adaptSQL(query));
+                statement = getConnection().prepareStatement(adaptSQL(query));
                 statements.put(KEY, statement);
             }
             statement.setString(1, identifier);
@@ -1018,11 +1043,12 @@ public abstract class DirectEpsgFactory extends DirectAuthorityFactory
         final PreparedStatement stmt =
                 prepareStatement(
                         "Alias",
-                        "SELECT NAMING_SYSTEM_NAME, ALIAS"
-                                + " FROM [Alias] INNER JOIN [Naming System]"
-                                + " ON [Alias].NAMING_SYSTEM_CODE ="
-                                + " [Naming System].NAMING_SYSTEM_CODE"
-                                + " WHERE OBJECT_CODE = ?");
+                        () ->
+                                "SELECT NAMING_SYSTEM_NAME, ALIAS"
+                                        + " FROM [Alias] INNER JOIN [Naming System]"
+                                        + " ON [Alias].NAMING_SYSTEM_CODE ="
+                                        + " [Naming System].NAMING_SYSTEM_CODE"
+                                        + " WHERE OBJECT_CODE = ?");
         stmt.setString(1, code);
         try (ResultSet result = stmt.executeQuery()) {
             while (result.next()) {
@@ -1135,7 +1161,7 @@ public abstract class DirectEpsgFactory extends DirectAuthorityFactory
                         stmt = prepareStatement(KEY, query.toString());
                     } else {
                         // Do not cache the statement for names.
-                        stmt = connection.prepareStatement(adaptSQL(query.toString()));
+                        stmt = getConnection().prepareStatement(adaptSQL(query.toString()));
                     }
                 }
                 /*
@@ -1225,12 +1251,13 @@ public abstract class DirectEpsgFactory extends DirectAuthorityFactory
             final PreparedStatement stmt =
                     prepareStatement(
                             "Unit",
-                            "SELECT UOM_CODE,"
-                                    + " FACTOR_B,"
-                                    + " FACTOR_C,"
-                                    + " TARGET_UOM_CODE"
-                                    + " FROM [Unit of Measure]"
-                                    + " WHERE UOM_CODE = ?");
+                            () ->
+                                    "SELECT UOM_CODE,"
+                                            + " FACTOR_B,"
+                                            + " FACTOR_C,"
+                                            + " TARGET_UOM_CODE"
+                                            + " FROM [Unit of Measure]"
+                                            + " WHERE UOM_CODE = ?");
             stmt.setInt(1, Integer.parseInt(primaryKey));
             try (ResultSet result = stmt.executeQuery()) {
                 while (result.next()) {
@@ -1291,15 +1318,16 @@ public abstract class DirectEpsgFactory extends DirectAuthorityFactory
             final PreparedStatement stmt =
                     prepareStatement(
                             "Ellipsoid",
-                            "SELECT ELLIPSOID_CODE,"
-                                    + " ELLIPSOID_NAME,"
-                                    + " SEMI_MAJOR_AXIS,"
-                                    + " INV_FLATTENING,"
-                                    + " SEMI_MINOR_AXIS,"
-                                    + " UOM_CODE,"
-                                    + " REMARKS"
-                                    + " FROM [Ellipsoid]"
-                                    + " WHERE ELLIPSOID_CODE = ?");
+                            () ->
+                                    "SELECT ELLIPSOID_CODE,"
+                                            + " ELLIPSOID_NAME,"
+                                            + " SEMI_MAJOR_AXIS,"
+                                            + " INV_FLATTENING,"
+                                            + " SEMI_MINOR_AXIS,"
+                                            + " UOM_CODE,"
+                                            + " REMARKS"
+                                            + " FROM [Ellipsoid]"
+                                            + " WHERE ELLIPSOID_CODE = ?");
             stmt.setInt(1, Integer.parseInt(primaryKey));
             try (ResultSet result = stmt.executeQuery()) {
                 while (result.next()) {
@@ -1391,13 +1419,14 @@ public abstract class DirectEpsgFactory extends DirectAuthorityFactory
             final PreparedStatement stmt =
                     prepareStatement(
                             "PrimeMeridian",
-                            "SELECT PRIME_MERIDIAN_CODE,"
-                                    + " PRIME_MERIDIAN_NAME,"
-                                    + " GREENWICH_LONGITUDE,"
-                                    + " UOM_CODE,"
-                                    + " REMARKS"
-                                    + " FROM [Prime Meridian]"
-                                    + " WHERE PRIME_MERIDIAN_CODE = ?");
+                            () ->
+                                    "SELECT PRIME_MERIDIAN_CODE,"
+                                            + " PRIME_MERIDIAN_NAME,"
+                                            + " GREENWICH_LONGITUDE,"
+                                            + " UOM_CODE,"
+                                            + " REMARKS"
+                                            + " FROM [Prime Meridian]"
+                                            + " WHERE PRIME_MERIDIAN_CODE = ?");
             stmt.setInt(1, Integer.parseInt(primaryKey));
             try (ResultSet result = stmt.executeQuery()) {
                 while (result.next()) {
@@ -1444,13 +1473,14 @@ public abstract class DirectEpsgFactory extends DirectAuthorityFactory
             final PreparedStatement stmt =
                     prepareStatement(
                             "Area",
-                            "SELECT AREA_OF_USE,"
-                                    + " AREA_SOUTH_BOUND_LAT,"
-                                    + " AREA_NORTH_BOUND_LAT,"
-                                    + " AREA_WEST_BOUND_LON,"
-                                    + " AREA_EAST_BOUND_LON"
-                                    + " FROM [Area]"
-                                    + " WHERE AREA_CODE = ?");
+                            () ->
+                                    "SELECT AREA_OF_USE,"
+                                            + " AREA_SOUTH_BOUND_LAT,"
+                                            + " AREA_NORTH_BOUND_LAT,"
+                                            + " AREA_WEST_BOUND_LON,"
+                                            + " AREA_EAST_BOUND_LON"
+                                            + " FROM [Area]"
+                                            + " WHERE AREA_CODE = ?");
             stmt.setInt(1, Integer.parseInt(primaryKey));
             try (ResultSet result = stmt.executeQuery()) {
                 while (result.next()) {
@@ -1519,30 +1549,31 @@ public abstract class DirectEpsgFactory extends DirectAuthorityFactory
         PreparedStatement stmt =
                 prepareStatement(
                         "BursaWolfParametersSet",
-                        "SELECT CO.COORD_OP_CODE,"
-                                + " CO.COORD_OP_METHOD_CODE,"
-                                + " CRS2.DATUM_CODE"
-                                + " FROM [Coordinate_Operation] AS CO"
-                                + " INNER JOIN [Coordinate Reference System] AS CRS2"
-                                + " ON CO.TARGET_CRS_CODE = CRS2.COORD_REF_SYS_CODE"
-                                + " LEFT JOIN [Area] AS AREA on CO.AREA_OF_USE_CODE = AREA.AREA_CODE"
-                                + " WHERE CO.COORD_OP_METHOD_CODE >= "
-                                + BURSA_WOLF_MIN_CODE
-                                + " AND CO.COORD_OP_METHOD_CODE <= "
-                                + BURSA_WOLF_MAX_CODE
-                                + " AND CO.COORD_OP_CODE <> "
-                                + DUMMY_OPERATION // GEOT-1008
-                                + " AND CO.SOURCE_CRS_CODE IN ("
-                                + " SELECT CRS1.COORD_REF_SYS_CODE " // GEOT-1129
-                                + " FROM [Coordinate Reference System] AS CRS1 "
-                                + " WHERE CRS1.DATUM_CODE = ?)"
-                                + " ORDER BY CRS2.DATUM_CODE,"
-                                + " ABS(CO.DEPRECATED), CO.COORD_OP_ACCURACY,"
-                                + " (AREA_NORTH_BOUND_LAT - AREA_SOUTH_BOUND_LAT) * "
-                                + "(CASE WHEN AREA_EAST_BOUND_LON > AREA_WEST_BOUND_LON "
-                                + "     THEN (AREA_EAST_BOUND_LON - AREA_WEST_BOUND_LON) "
-                                + "     ELSE (360 - AREA_WEST_BOUND_LON - AREA_EAST_BOUND_LON) END) DESC,"
-                                + " CO.COORD_OP_CODE DESC"); // GEOT-846 fix
+                        () ->
+                                "SELECT CO.COORD_OP_CODE,"
+                                        + " CO.COORD_OP_METHOD_CODE,"
+                                        + " CRS2.DATUM_CODE"
+                                        + " FROM [Coordinate_Operation] AS CO"
+                                        + " INNER JOIN [Coordinate Reference System] AS CRS2"
+                                        + " ON CO.TARGET_CRS_CODE = CRS2.COORD_REF_SYS_CODE"
+                                        + " LEFT JOIN [Area] AS AREA on CO.AREA_OF_USE_CODE = AREA.AREA_CODE"
+                                        + " WHERE CO.COORD_OP_METHOD_CODE >= "
+                                        + BURSA_WOLF_MIN_CODE
+                                        + " AND CO.COORD_OP_METHOD_CODE <= "
+                                        + BURSA_WOLF_MAX_CODE
+                                        + " AND CO.COORD_OP_CODE <> "
+                                        + DUMMY_OPERATION // GEOT-1008
+                                        + " AND CO.SOURCE_CRS_CODE IN ("
+                                        + " SELECT CRS1.COORD_REF_SYS_CODE " // GEOT-1129
+                                        + " FROM [Coordinate Reference System] AS CRS1 "
+                                        + " WHERE CRS1.DATUM_CODE = ?)"
+                                        + " ORDER BY CRS2.DATUM_CODE,"
+                                        + " ABS(CO.DEPRECATED), CO.COORD_OP_ACCURACY,"
+                                        + " (AREA_NORTH_BOUND_LAT - AREA_SOUTH_BOUND_LAT) * "
+                                        + "(CASE WHEN AREA_EAST_BOUND_LON > AREA_WEST_BOUND_LON "
+                                        + "     THEN (AREA_EAST_BOUND_LON - AREA_WEST_BOUND_LON) "
+                                        + "     ELSE (360 - AREA_WEST_BOUND_LON - AREA_EAST_BOUND_LON) END) DESC,"
+                                        + " CO.COORD_OP_CODE DESC"); // GEOT-846 fix
         stmt.setInt(1, Integer.parseInt(code));
         List<Object> bwInfos = null;
         try (ResultSet result = stmt.executeQuery()) {
@@ -1588,12 +1619,13 @@ public abstract class DirectEpsgFactory extends DirectAuthorityFactory
         stmt =
                 prepareStatement(
                         "BursaWolfParameters",
-                        "SELECT PARAMETER_CODE,"
-                                + " PARAMETER_VALUE,"
-                                + " UOM_CODE"
-                                + " FROM [Coordinate_Operation Parameter Value]"
-                                + " WHERE COORD_OP_CODE = ?"
-                                + " AND COORD_OP_METHOD_CODE = ?");
+                        () ->
+                                "SELECT PARAMETER_CODE,"
+                                        + " PARAMETER_VALUE,"
+                                        + " UOM_CODE"
+                                        + " FROM [Coordinate_Operation Parameter Value]"
+                                        + " WHERE COORD_OP_CODE = ?"
+                                        + " AND COORD_OP_METHOD_CODE = ?");
         for (int i = 0; i < size; i++) {
             final BursaWolfInfo info = (BursaWolfInfo) bwInfos.get(i);
             final GeodeticDatum datum;
@@ -1648,18 +1680,19 @@ public abstract class DirectEpsgFactory extends DirectAuthorityFactory
             final PreparedStatement stmt =
                     prepareStatement(
                             "Datum",
-                            "SELECT DATUM_CODE,"
-                                    + " DATUM_NAME,"
-                                    + " DATUM_TYPE,"
-                                    + " ORIGIN_DESCRIPTION,"
-                                    + " REALIZATION_EPOCH,"
-                                    + " AREA_OF_USE_CODE,"
-                                    + " DATUM_SCOPE,"
-                                    + " REMARKS,"
-                                    + " ELLIPSOID_CODE," // Only for geodetic type
-                                    + " PRIME_MERIDIAN_CODE" // Only for geodetic type
-                                    + " FROM [Datum]"
-                                    + " WHERE DATUM_CODE = ?");
+                            () ->
+                                    "SELECT DATUM_CODE,"
+                                            + " DATUM_NAME,"
+                                            + " DATUM_TYPE,"
+                                            + " ORIGIN_DESCRIPTION,"
+                                            + " REALIZATION_EPOCH,"
+                                            + " AREA_OF_USE_CODE,"
+                                            + " DATUM_SCOPE,"
+                                            + " REMARKS,"
+                                            + " ELLIPSOID_CODE," // Only for geodetic type
+                                            + " PRIME_MERIDIAN_CODE" // Only for geodetic type
+                                            + " FROM [Datum]"
+                                            + " WHERE DATUM_CODE = ?");
             stmt.setInt(1, Integer.parseInt(primaryKey));
             try (ResultSet result = stmt.executeQuery()) {
                 boolean exit = false;
@@ -1751,9 +1784,10 @@ public abstract class DirectEpsgFactory extends DirectAuthorityFactory
                 final PreparedStatement stmt =
                         prepareStatement(
                                 "AxisName",
-                                "SELECT COORD_AXIS_NAME, DESCRIPTION, REMARKS"
-                                        + " FROM [Coordinate Axis Name]"
-                                        + " WHERE COORD_AXIS_NAME_CODE = ?");
+                                () ->
+                                        "SELECT COORD_AXIS_NAME, DESCRIPTION, REMARKS"
+                                                + " FROM [Coordinate Axis Name]"
+                                                + " WHERE COORD_AXIS_NAME_CODE = ?");
                 stmt.setInt(1, Integer.parseInt(code));
                 try (ResultSet result = stmt.executeQuery()) {
                     while (result.next()) {
@@ -1796,13 +1830,14 @@ public abstract class DirectEpsgFactory extends DirectAuthorityFactory
             final PreparedStatement stmt =
                     prepareStatement(
                             "Axis",
-                            "SELECT COORD_AXIS_CODE,"
-                                    + " COORD_AXIS_NAME_CODE,"
-                                    + " COORD_AXIS_ORIENTATION,"
-                                    + " COORD_AXIS_ABBREVIATION,"
-                                    + " UOM_CODE"
-                                    + " FROM [Coordinate Axis]"
-                                    + " WHERE COORD_AXIS_CODE = ?");
+                            () ->
+                                    "SELECT COORD_AXIS_CODE,"
+                                            + " COORD_AXIS_NAME_CODE,"
+                                            + " COORD_AXIS_ORIENTATION,"
+                                            + " COORD_AXIS_ABBREVIATION,"
+                                            + " UOM_CODE"
+                                            + " FROM [Coordinate Axis]"
+                                            + " WHERE COORD_AXIS_CODE = ?");
             stmt.setInt(1, Integer.parseInt(primaryKey));
             try (ResultSet result = stmt.executeQuery()) {
                 while (result.next()) {
@@ -1868,10 +1903,11 @@ public abstract class DirectEpsgFactory extends DirectAuthorityFactory
         final PreparedStatement stmt =
                 prepareStatement(
                         "AxisOrder",
-                        "SELECT COORD_AXIS_CODE"
-                                + " FROM [Coordinate Axis]"
-                                + " WHERE COORD_SYS_CODE = ?"
-                                + " ORDER BY [ORDER]");
+                        () ->
+                                "SELECT COORD_AXIS_CODE"
+                                        + " FROM [Coordinate Axis]"
+                                        + " WHERE COORD_SYS_CODE = ?"
+                                        + " ORDER BY [ORDER]");
         // WARNING: Be careful about the column name :
         //          MySQL rejects ORDER as a column name !!!
         stmt.setInt(1, Integer.parseInt(code));
@@ -1920,13 +1956,14 @@ public abstract class DirectEpsgFactory extends DirectAuthorityFactory
             stmt =
                     prepareStatement(
                             "CoordinateSystem",
-                            "SELECT COORD_SYS_CODE,"
-                                    + " COORD_SYS_NAME,"
-                                    + " COORD_SYS_TYPE,"
-                                    + " DIMENSION,"
-                                    + " REMARKS"
-                                    + " FROM [Coordinate System]"
-                                    + " WHERE COORD_SYS_CODE = ?");
+                            () ->
+                                    "SELECT COORD_SYS_CODE,"
+                                            + " COORD_SYS_NAME,"
+                                            + " COORD_SYS_TYPE,"
+                                            + " DIMENSION,"
+                                            + " REMARKS"
+                                            + " FROM [Coordinate System]"
+                                            + " WHERE COORD_SYS_CODE = ?");
             stmt.setInt(1, Integer.parseInt(primaryKey));
             try (ResultSet result = stmt.executeQuery()) {
                 while (result.next()) {
@@ -2060,20 +2097,21 @@ public abstract class DirectEpsgFactory extends DirectAuthorityFactory
             final PreparedStatement stmt =
                     prepareStatement(
                             "CoordinateReferenceSystem",
-                            "SELECT COORD_REF_SYS_CODE,"
-                                    + " COORD_REF_SYS_NAME,"
-                                    + " AREA_OF_USE_CODE,"
-                                    + " CRS_SCOPE,"
-                                    + " REMARKS,"
-                                    + " COORD_REF_SYS_KIND,"
-                                    + " COORD_SYS_CODE," // Null for CompoundCRS
-                                    + " DATUM_CODE," // Null for ProjectedCRS
-                                    + " SOURCE_GEOGCRS_CODE," // For ProjectedCRS
-                                    + " PROJECTION_CONV_CODE," // For ProjectedCRS
-                                    + " CMPD_HORIZCRS_CODE," // For CompoundCRS only
-                                    + " CMPD_VERTCRS_CODE" // For CompoundCRS only
-                                    + " FROM [Coordinate Reference System]"
-                                    + " WHERE COORD_REF_SYS_CODE = ?");
+                            () ->
+                                    "SELECT COORD_REF_SYS_CODE,"
+                                            + " COORD_REF_SYS_NAME,"
+                                            + " AREA_OF_USE_CODE,"
+                                            + " CRS_SCOPE,"
+                                            + " REMARKS,"
+                                            + " COORD_REF_SYS_KIND,"
+                                            + " COORD_SYS_CODE," // Null for CompoundCRS
+                                            + " DATUM_CODE," // Null for ProjectedCRS
+                                            + " SOURCE_GEOGCRS_CODE," // For ProjectedCRS
+                                            + " PROJECTION_CONV_CODE," // For ProjectedCRS
+                                            + " CMPD_HORIZCRS_CODE," // For CompoundCRS only
+                                            + " CMPD_VERTCRS_CODE" // For CompoundCRS only
+                                            + " FROM [Coordinate Reference System]"
+                                            + " WHERE COORD_REF_SYS_CODE = ?");
             stmt.setInt(1, Integer.parseInt(primaryKey));
             try (ResultSet result = stmt.executeQuery()) {
                 boolean exit = false;
@@ -2259,11 +2297,12 @@ public abstract class DirectEpsgFactory extends DirectAuthorityFactory
             stmt =
                     prepareStatement(
                             "ParameterDescriptor", // Must be singular form.
-                            "SELECT PARAMETER_CODE,"
-                                    + " PARAMETER_NAME,"
-                                    + " DESCRIPTION"
-                                    + " FROM [Coordinate_Operation Parameter]"
-                                    + " WHERE PARAMETER_CODE = ?");
+                            () ->
+                                    "SELECT PARAMETER_CODE,"
+                                            + " PARAMETER_NAME,"
+                                            + " DESCRIPTION"
+                                            + " FROM [Coordinate_Operation Parameter]"
+                                            + " WHERE PARAMETER_CODE = ?");
             stmt.setInt(1, Integer.parseInt(primaryKey));
             try (ResultSet result = stmt.executeQuery()) {
                 while (result.next()) {
@@ -2333,10 +2372,11 @@ public abstract class DirectEpsgFactory extends DirectAuthorityFactory
         final PreparedStatement stmt =
                 prepareStatement(
                         "ParameterDescriptors", // Must be plural form.
-                        "SELECT PARAMETER_CODE"
-                                + " FROM [Coordinate_Operation Parameter Usage]"
-                                + " WHERE COORD_OP_METHOD_CODE = ?"
-                                + " ORDER BY SORT_ORDER");
+                        () ->
+                                "SELECT PARAMETER_CODE"
+                                        + " FROM [Coordinate_Operation Parameter Usage]"
+                                        + " WHERE COORD_OP_METHOD_CODE = ?"
+                                        + " ORDER BY SORT_ORDER");
         stmt.setInt(1, Integer.parseInt(method));
         try (ResultSet results = stmt.executeQuery()) {
             final List<ParameterDescriptor> descriptors = new ArrayList<>();
@@ -2363,19 +2403,20 @@ public abstract class DirectEpsgFactory extends DirectAuthorityFactory
         final PreparedStatement stmt =
                 prepareStatement(
                         "ParameterValues",
-                        "SELECT CP.PARAMETER_NAME,"
-                                + " CV.PARAMETER_VALUE,"
-                                + " CV.PARAM_VALUE_FILE_REF,"
-                                + " CV.UOM_CODE"
-                                + " FROM ([Coordinate_Operation Parameter Value] AS CV"
-                                + " INNER JOIN [Coordinate_Operation Parameter] AS CP"
-                                + " ON CV.PARAMETER_CODE = CP.PARAMETER_CODE)"
-                                + " INNER JOIN [Coordinate_Operation Parameter Usage] AS CU"
-                                + " ON (CP.PARAMETER_CODE = CU.PARAMETER_CODE)"
-                                + " AND (CV.COORD_OP_METHOD_CODE = CU.COORD_OP_METHOD_CODE)"
-                                + " WHERE CV.COORD_OP_METHOD_CODE = ?"
-                                + " AND CV.COORD_OP_CODE = ?"
-                                + " ORDER BY CU.SORT_ORDER");
+                        () ->
+                                "SELECT CP.PARAMETER_NAME,"
+                                        + " CV.PARAMETER_VALUE,"
+                                        + " CV.PARAM_VALUE_FILE_REF,"
+                                        + " CV.UOM_CODE"
+                                        + " FROM ([Coordinate_Operation Parameter Value] AS CV"
+                                        + " INNER JOIN [Coordinate_Operation Parameter] AS CP"
+                                        + " ON CV.PARAMETER_CODE = CP.PARAMETER_CODE)"
+                                        + " INNER JOIN [Coordinate_Operation Parameter Usage] AS CU"
+                                        + " ON (CP.PARAMETER_CODE = CU.PARAMETER_CODE)"
+                                        + " AND (CV.COORD_OP_METHOD_CODE = CU.COORD_OP_METHOD_CODE)"
+                                        + " WHERE CV.COORD_OP_METHOD_CODE = ?"
+                                        + " AND CV.COORD_OP_CODE = ?"
+                                        + " ORDER BY CU.SORT_ORDER");
         stmt.setInt(1, Integer.parseInt(method));
         stmt.setInt(2, Integer.parseInt(operation));
         try (ResultSet result = stmt.executeQuery()) {
@@ -2466,12 +2507,13 @@ public abstract class DirectEpsgFactory extends DirectAuthorityFactory
             stmt =
                     prepareStatement(
                             "OperationMethod",
-                            "SELECT COORD_OP_METHOD_CODE,"
-                                    + " COORD_OP_METHOD_NAME,"
-                                    + " FORMULA,"
-                                    + " REMARKS"
-                                    + " FROM [Coordinate_Operation Method]"
-                                    + " WHERE COORD_OP_METHOD_CODE = ?");
+                            () ->
+                                    "SELECT COORD_OP_METHOD_CODE,"
+                                            + " COORD_OP_METHOD_NAME,"
+                                            + " FORMULA,"
+                                            + " REMARKS"
+                                            + " FROM [Coordinate_Operation Method]"
+                                            + " WHERE COORD_OP_METHOD_CODE = ?");
             stmt.setInt(1, Integer.parseInt(primaryKey));
             try (ResultSet result = stmt.executeQuery()) {
                 OperationMethod method = null;
@@ -2604,12 +2646,13 @@ public abstract class DirectEpsgFactory extends DirectAuthorityFactory
         final PreparedStatement stmt =
                 prepareStatement(
                         "MethodDimensions",
-                        "SELECT SOURCE_CRS_CODE,"
-                                + " TARGET_CRS_CODE"
-                                + " FROM [Coordinate_Operation]"
-                                + " WHERE COORD_OP_METHOD_CODE = ?"
-                                + " AND SOURCE_CRS_CODE IS NOT NULL"
-                                + " AND TARGET_CRS_CODE IS NOT NULL");
+                        () ->
+                                "SELECT SOURCE_CRS_CODE,"
+                                        + " TARGET_CRS_CODE"
+                                        + " FROM [Coordinate_Operation]"
+                                        + " WHERE COORD_OP_METHOD_CODE = ?"
+                                        + " AND SOURCE_CRS_CODE IS NOT NULL"
+                                        + " AND TARGET_CRS_CODE IS NOT NULL");
         stmt.setInt(1, Integer.parseInt(code));
         final Map<Dimensions, Dimensions> dimensions = new HashMap<>();
         final Dimensions temp = new Dimensions((2 << 16) | 2); // Default to (2,2) dimensions.
@@ -2677,11 +2720,12 @@ public abstract class DirectEpsgFactory extends DirectAuthorityFactory
             stmt =
                     prepareStatement(
                             "Dimension",
-                            "  SELECT COUNT(COORD_AXIS_CODE)"
-                                    + " FROM [Coordinate Axis]"
-                                    + " WHERE COORD_SYS_CODE = (SELECT COORD_SYS_CODE "
-                                    + " FROM [Coordinate Reference System]"
-                                    + " WHERE COORD_REF_SYS_CODE = ?)");
+                            () ->
+                                    "  SELECT COUNT(COORD_AXIS_CODE)"
+                                            + " FROM [Coordinate Axis]"
+                                            + " WHERE COORD_SYS_CODE = (SELECT COORD_SYS_CODE "
+                                            + " FROM [Coordinate Reference System]"
+                                            + " WHERE COORD_REF_SYS_CODE = ?)");
             stmt.setString(1, code);
             try (ResultSet result = stmt.executeQuery()) {
                 dimension = result.next() ? result.getShort(1) : 2;
@@ -2705,10 +2749,11 @@ public abstract class DirectEpsgFactory extends DirectAuthorityFactory
             stmt =
                     prepareStatement(
                             "isProjection",
-                            "SELECT COORD_REF_SYS_CODE"
-                                    + " FROM [Coordinate Reference System]"
-                                    + " WHERE PROJECTION_CONV_CODE = ?"
-                                    + " AND COORD_REF_SYS_KIND LIKE 'projected%'");
+                            () ->
+                                    "SELECT COORD_REF_SYS_CODE"
+                                            + " FROM [Coordinate Reference System]"
+                                            + " WHERE PROJECTION_CONV_CODE = ?"
+                                            + " AND COORD_REF_SYS_KIND LIKE 'projected%'");
             stmt.setString(1, code);
             try (ResultSet result = stmt.executeQuery()) {
                 final boolean found = result.next();
@@ -2746,19 +2791,20 @@ public abstract class DirectEpsgFactory extends DirectAuthorityFactory
             final PreparedStatement stmt =
                     prepareStatement(
                             "CoordinateOperation",
-                            "SELECT COORD_OP_CODE,"
-                                    + " COORD_OP_NAME,"
-                                    + " COORD_OP_TYPE,"
-                                    + " SOURCE_CRS_CODE,"
-                                    + " TARGET_CRS_CODE,"
-                                    + " COORD_OP_METHOD_CODE,"
-                                    + " COORD_TFM_VERSION,"
-                                    + " COORD_OP_ACCURACY,"
-                                    + " AREA_OF_USE_CODE,"
-                                    + " COORD_OP_SCOPE,"
-                                    + " REMARKS"
-                                    + " FROM [Coordinate_Operation]"
-                                    + " WHERE COORD_OP_CODE = ?");
+                            () ->
+                                    "SELECT COORD_OP_CODE,"
+                                            + " COORD_OP_NAME,"
+                                            + " COORD_OP_TYPE,"
+                                            + " SOURCE_CRS_CODE,"
+                                            + " TARGET_CRS_CODE,"
+                                            + " COORD_OP_METHOD_CODE,"
+                                            + " COORD_TFM_VERSION,"
+                                            + " COORD_OP_ACCURACY,"
+                                            + " AREA_OF_USE_CODE,"
+                                            + " COORD_OP_SCOPE,"
+                                            + " REMARKS"
+                                            + " FROM [Coordinate_Operation]"
+                                            + " WHERE COORD_OP_CODE = ?");
             stmt.setInt(1, Integer.parseInt(primaryKey));
             try (ResultSet result = stmt.executeQuery()) {
                 while (hasNext(result)) {
@@ -2914,10 +2960,11 @@ public abstract class DirectEpsgFactory extends DirectAuthorityFactory
                         final PreparedStatement cstmt =
                                 prepareStatement(
                                         "ConcatenatedOperation",
-                                        "SELECT SINGLE_OPERATION_CODE"
-                                                + " FROM [Coordinate_Operation Path]"
-                                                + " WHERE (CONCAT_OPERATION_CODE = ?)"
-                                                + " ORDER BY OP_PATH_STEP");
+                                        () ->
+                                                "SELECT SINGLE_OPERATION_CODE"
+                                                        + " FROM [Coordinate_Operation Path]"
+                                                        + " WHERE (CONCAT_OPERATION_CODE = ?)"
+                                                        + " ORDER BY OP_PATH_STEP");
                         cstmt.setString(1, epsg);
                         final List<String> codes = new ArrayList<>();
                         try (ResultSet cr = cstmt.executeQuery()) {
@@ -3075,27 +3122,30 @@ public abstract class DirectEpsgFactory extends DirectAuthorityFactory
                  * Defining conversions are searched first because they are, by definition, the
                  * most accurate operations.
                  */
-                final String key, sql;
+                final String key;
+                final Supplier<String> sql;
                 if (searchTransformations) {
                     key = "TransformationFromCRS";
                     sql =
-                            "SELECT COORD_OP_CODE"
-                                    + " FROM [Coordinate_Operation] left join [Area] on [Coordinate_Operation].area_of_use_code = [Area].area_code"
-                                    + " WHERE SOURCE_CRS_CODE = ?"
-                                    + " AND TARGET_CRS_CODE = ?"
-                                    + " ORDER BY ABS([Coordinate_Operation].DEPRECATED), COORD_OP_ACCURACY,"
-                                    + "	(AREA_NORTH_BOUND_LAT - AREA_SOUTH_BOUND_LAT) * "
-                                    + " (CASE WHEN AREA_EAST_BOUND_LON > AREA_WEST_BOUND_LON "
-                                    + "     THEN (AREA_EAST_BOUND_LON - AREA_WEST_BOUND_LON) "
-                                    + "     ELSE (360 - AREA_WEST_BOUND_LON - AREA_EAST_BOUND_LON) END) DESC,"
-                                    + " COORD_OP_CODE DESC";
+                            () ->
+                                    "SELECT COORD_OP_CODE"
+                                            + " FROM [Coordinate_Operation] left join [Area] on [Coordinate_Operation].area_of_use_code = [Area].area_code"
+                                            + " WHERE SOURCE_CRS_CODE = ?"
+                                            + " AND TARGET_CRS_CODE = ?"
+                                            + " ORDER BY ABS([Coordinate_Operation].DEPRECATED), COORD_OP_ACCURACY,"
+                                            + "	(AREA_NORTH_BOUND_LAT - AREA_SOUTH_BOUND_LAT) * "
+                                            + " (CASE WHEN AREA_EAST_BOUND_LON > AREA_WEST_BOUND_LON "
+                                            + "     THEN (AREA_EAST_BOUND_LON - AREA_WEST_BOUND_LON) "
+                                            + "     ELSE (360 - AREA_WEST_BOUND_LON - AREA_EAST_BOUND_LON) END) DESC,"
+                                            + " COORD_OP_CODE DESC";
                 } else {
                     key = "ConversionFromCRS";
                     sql =
-                            "SELECT PROJECTION_CONV_CODE"
-                                    + " FROM [Coordinate Reference System]"
-                                    + " WHERE SOURCE_GEOGCRS_CODE = ?"
-                                    + " AND COORD_REF_SYS_CODE = ?";
+                            () ->
+                                    "SELECT PROJECTION_CONV_CODE"
+                                            + " FROM [Coordinate Reference System]"
+                                            + " WHERE SOURCE_GEOGCRS_CODE = ?"
+                                            + " AND COORD_REF_SYS_CODE = ?";
                 }
                 final PreparedStatement stmt = prepareStatement(key, sql);
                 stmt.setString(1, sourceKey);
@@ -3146,10 +3196,11 @@ public abstract class DirectEpsgFactory extends DirectAuthorityFactory
         final PreparedStatement stmt =
                 prepareStatement(
                         "Supersession",
-                        "SELECT SUPERSEDED_BY"
-                                + " FROM [Supersession]"
-                                + " WHERE OBJECT_CODE = ?"
-                                + " ORDER BY SUPERSESSION_YEAR DESC");
+                        () ->
+                                "SELECT SUPERSEDED_BY"
+                                        + " FROM [Supersession]"
+                                        + " WHERE OBJECT_CODE = ?"
+                                        + " ORDER BY SUPERSESSION_YEAR DESC");
         int maxIterations = 15; // For avoiding never-ending loop.
         do {
             boolean changed = false;
