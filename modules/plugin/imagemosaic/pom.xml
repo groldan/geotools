@@ -153,6 +153,11 @@
       <artifactId>imageio-ext-streams</artifactId>
     </dependency>
     <dependency>
+      <groupId>jakarta.xml.bind</groupId>
+      <artifactId>jakarta.xml.bind-api</artifactId>
+      <version>4.0.1</version>
+    </dependency>
+    <dependency>
       <groupId>it.geosolutions.imageio-ext</groupId>
       <artifactId>imageio-ext-geocore</artifactId>
     </dependency>
@@ -179,20 +184,10 @@
       <artifactId>jt-vectorbinarize</artifactId>
     </dependency>
     <dependency>
-      <groupId>javax.xml.bind</groupId>
-      <artifactId>jaxb-api</artifactId>
-      <!-- version managed in parent pom -->
-    </dependency>
-    <dependency>
       <groupId>org.glassfish.jaxb</groupId>
       <artifactId>jaxb-runtime</artifactId>
       <version>${jaxb.runtime.version}</version>
       <scope>runtime</scope>
-    </dependency>
-    <dependency>
-      <groupId>javax.activation</groupId>
-      <artifactId>javax.activation-api</artifactId>
-      <version>${javax.activation-api.version}</version>
     </dependency>
     <dependency>
       <groupId>org.geotools</groupId>

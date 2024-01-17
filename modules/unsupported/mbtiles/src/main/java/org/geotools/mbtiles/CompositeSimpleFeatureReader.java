@@ -16,11 +16,11 @@
  */
 package org.geotools.mbtiles;
 
+import jakarta.annotation.Nonnull;
 import java.io.IOException;
 import java.util.List;
 import java.util.NoSuchElementException;
 import java.util.function.Supplier;
-import javax.annotation.Nonnull;
 import org.geotools.api.data.SimpleFeatureReader;
 import org.geotools.api.feature.simple.SimpleFeature;
 import org.geotools.api.feature.simple.SimpleFeatureType;

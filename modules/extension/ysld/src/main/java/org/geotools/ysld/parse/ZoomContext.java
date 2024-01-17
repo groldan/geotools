@@ -17,7 +17,7 @@
  */
 package org.geotools.ysld.parse;
 
-import javax.annotation.Nullable;
+import jakarta.annotation.Nullable;
 
 /**
  * Represents a mapping between zoom level and scale.

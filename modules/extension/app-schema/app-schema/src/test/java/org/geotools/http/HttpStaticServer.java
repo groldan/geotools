@@ -16,6 +16,8 @@
  */
 package org.geotools.http;
 
+import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
 import java.io.ByteArrayInputStream;
 import java.io.InputStream;
 import java.net.InetAddress;
@@ -23,8 +25,6 @@ import java.nio.charset.StandardCharsets;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.logging.Logger;
-import javax.servlet.http.HttpServletRequest;
-import javax.servlet.http.HttpServletResponse;
 import org.apache.commons.io.IOUtils;
 import org.eclipse.jetty.server.Connector;
 import org.eclipse.jetty.server.Request;

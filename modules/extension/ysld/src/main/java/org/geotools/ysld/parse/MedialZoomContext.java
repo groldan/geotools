@@ -17,7 +17,7 @@
  */
 package org.geotools.ysld.parse;
 
-import javax.annotation.Nullable;
+import jakarta.annotation.Nullable;
 
 /**
  * A zoom context that can find half way points between zoom levels.

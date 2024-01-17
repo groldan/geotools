@@ -17,13 +17,13 @@
  */
 package org.geotools.ysld.parse;
 
+import jakarta.annotation.Nullable;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Set;
 import java.util.TreeSet;
-import javax.annotation.Nullable;
 
 /**
  * A collection of commonly used ZoomContexts
